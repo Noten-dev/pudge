@@ -49,6 +49,14 @@
     виден в 3D: вокруг вещи кружат искры по числу уровней, свечение растёт.
   · v4.0 для тестов: отладочные ручки __pudgeGame.getGear()/testWear()/
     testEquipAll()/setCam() (крупные планы экипировки в автотестах).
+  · v4.2 ГОСТИ ИЗ ЛЕСА: с шансом 5% на бросок к Пуджу притягивает Crystal Maiden
+    или Sniper — влетают дугой из темноты, оставляют мешок золота и уносятся.
+    Подарок пропорционален шансу предмета: %шанса × 4 × Алчность (30% → 120,
+    80%+Алчность×1.8 → 576). Цепочку герои не трогают. Счётчики в статистике.
+  · v4.2 НОВЫЙ ЗАХОД: обновление страницы продолжает игру (золото, цепочка,
+    прокачка, экипировка на Пудже), но все предметы снова считаются
+    НЕПОДОБРАННЫМИ — 12 бонусов первой находки доступны заново (при загрузке
+    показывается тост «Новый заход» и золотые точки карточек пульсируют).
   · v4.1 баланс и посадка: шаг стоимости улучшения круче (160 × 2.1^уровень
     вместо 150 × 1.85^уровень — полная прокачка предмета ~55 тыс. вместо ~24);
     все вещи увеличены (scale 1.1–1.45 у слота) и пересажены НА поверхность
@@ -271,6 +279,8 @@
   .art-slot.owned .nm{color:#d8c088}
   .art-slot.owned .ord{display:block}
   .art-slot.bonusfree .firstdot{display:block}
+  #panel-arts.fresh .art-slot.bonusfree .firstdot{animation:dotPulse .9s ease-in-out 3}
+  @keyframes dotPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.9); box-shadow:0 0 14px rgba(255,220,90,1)}}
   .art-slot.pop{animation:pop .55s cubic-bezier(.2,1.6,.4,1)}
   @keyframes pop{0%{transform:scale(1)}40%{transform:scale(1.28)}100%{transform:scale(1)}}
   .art-slot.lost{animation:lost .9s}
@@ -307,6 +317,8 @@
   }
   .toast.out{opacity:0; transform:translateY(-8px); transition:.4s}
   .toast b{color:#e8d5a0}
+  .toast.hero-cm{border-color:rgba(122,200,232,.8); box-shadow:0 0 26px rgba(122,200,232,.35), 0 6px 20px rgba(0,0,0,.6)}
+  .toast.hero-sniper{border-color:rgba(200,176,96,.8); box-shadow:0 0 26px rgba(200,176,96,.35), 0 6px 20px rgba(0,0,0,.6)}
   .toast.good{border-color:rgba(143,191,90,.7); color:#cfe0a8}
   .toast.bad{border-color:rgba(208,80,58,.8); color:#e8a898; background:rgba(30,8,5,.92)}
   .toast.bad b{color:#ff9a80}
@@ -562,6 +574,10 @@
       <li><em>Пустой бросок — и все предметы текущей цепочки сгорают.</em> Лес не промахов не прощает.</li>
       <li>Цель: выбить <b>все 12 артефактов подряд</b> — одной неразрывной цепочкой, в любом порядке, без единого промаха.</li>
       <li>Первая находка каждого предмета <b>за заход</b> (от открытия страницы до закрытия) даёт <span class="gold-t">бонусное золото</span>.</li>
+      <li><b>Обновил страницу</b> — игра продолжилась (золото, цепочка, прокачка на месте),
+          но все предметы снова считаются ненайденными: бонусы первой находки горят заново.</li>
+      <li>С шансом <b>5%</b> на бросок к Пуджу притягивает <b>Crystal Maiden</b> или <b>Sniper</b>:
+          они дарят золото = <span class="gold-t">%шанса предмета × 4 × Алчность</span>. Цепочку не трогают.</li>
       <li>Чистые 30% двенадцать раз подряд — примерно <em>1 шанс из 1 880 000</em>. Без лавки мясника лес его не отдаст. Золото — твой путь к победе.</li>
     </ul>
     <h3>Лавка мясника</h3>
@@ -733,6 +749,28 @@
   };
   var MAX_SHIELDS = 3;
 
+  /* ---------- гости из леса: Crystal Maiden и Sniper ----------
+     С шансом 5% на бросок один из героев «притягивается» к Пуджу и одаривает
+     его золотом, пропорциональным текущему шансу вытащить предмет:
+     золото = %шанса × 4 × Алчность. Цепочку герои не трогают — это чистый бонус. */
+  var HERO_CHANCE       = 0.05;
+  var HERO_GOLD_PER_PCT = 4;
+  var HEROES = [
+    { id: 'cm',     name: 'Crystal Maiden', icon: '❄️',  color: '#7ac8e8',
+      quote: '«Лёд леса растаял… специально для тебя.»' },
+    { id: 'sniper', name: 'Sniper',         icon: '🎯', color: '#c8b060',
+      quote: '«Хороший крюк, приятель. Держи сдачу.»' }
+  ];
+  function heroGoldOf(s) {
+    return Math.round(Math.round(chanceOf(s) * 100) * HERO_GOLD_PER_PCT * goldMultOf(s));
+  }
+  function rollHero(rnd) {
+    if (rnd() >= HERO_CHANCE) return null;
+    var idx = Math.floor(rnd() * HEROES.length);
+    if (!(idx >= 0 && idx < HEROES.length)) return null;   // защита от «исчерпанного» rnd в тестах
+    return HEROES[idx];
+  }
+
   /* ---------- прокачка отдельных артефактов ----------
      Каждый артефакт качается ОТДЕЛЬНО и навсегда: уровни переживают обрыв цепочки.
      Уровень даёт два эффекта:
@@ -805,7 +843,7 @@
       stats: {
         clicks: 0, goldEarned: 0, artifacts: 0, bonuses: 0,
         breaks: 0, shieldsUsed: 0, best: 0, wins: 0, playMs: 0,
-        passiveGold: 0, artUpgrades: 0
+        passiveGold: 0, artUpgrades: 0, heroVisits: 0, heroGold: 0
       },
       artLv: {},               // уровни прокачки артефактов (персистентно)
       soundOn: true,
@@ -818,6 +856,20 @@
   /* ---------- главный бросок ---------- */
   // Мутирует состояние и возвращает событие для UI/3D.
   // rnd — опциональная функция случайности (для тестов).
+  // К событию любого исхода может приехать поле hero/heroGold (5% шанс).
+  function attachHero(s, ev, rnd) {
+    var h = rollHero(rnd);
+    if (h) {
+      var hg = heroGoldOf(s);
+      s.gold += hg;
+      s.stats.goldEarned += hg;
+      s.stats.heroGold += hg;
+      s.stats.heroVisits++;
+      ev.hero = h;
+      ev.heroGold = hg;
+    }
+    return ev;
+  }
   function rollThrow(s, rnd) {
     rnd = rnd || Math.random;
     if (s.chainIds.length >= TOTAL_ARTS) return { type: 'none' }; // уже победа — защита от лишнего броска
@@ -850,21 +902,21 @@
       if (s.chainIds.length > s.stats.best) s.stats.best = s.chainIds.length;
       var win = s.chainIds.length >= TOTAL_ARTS;
       if (win) s.stats.wins++;
-      return { type: 'artifact', art: art, gold: g, baseGold: gBase, lvlBonus: lvlBonus, artLv: artLv,
-               firstBonus: fb, isNew: isNew, chain: s.chainIds.length, win: win };
+      return attachHero(s, { type: 'artifact', art: art, gold: g, baseGold: gBase, lvlBonus: lvlBonus, artLv: artLv,
+               firstBonus: fb, isNew: isNew, chain: s.chainIds.length, win: win }, rnd);
     }
 
     // промах
     if (s.shields > 0 && s.chainIds.length > 0) {
       s.shields--;
       s.stats.shieldsUsed++;
-      return { type: 'shield', chain: s.chainIds.length };
+      return attachHero(s, { type: 'shield', chain: s.chainIds.length }, rnd);
     }
     var lost = s.chainIds.length;
     var lostIds = s.chainIds.slice();
     s.chainIds = [];
     if (lost > 0) s.stats.breaks++;
-    return { type: 'fail', junk: JUNK[Math.floor(rnd() * JUNK.length) % JUNK.length], lost: lost, lostIds: lostIds };
+    return attachHero(s, { type: 'fail', junk: JUNK[Math.floor(rnd() * JUNK.length) % JUNK.length], lost: lost, lostIds: lostIds }, rnd);
   }
 
   /* ---------- покупки ---------- */
@@ -938,6 +990,9 @@
   function clearSave() {
     try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
   }
+  function hasSave() {
+    try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { return false; }
+  }
   function rulesSeen() {
     try { return !!localStorage.getItem(FIRST_KEY); } catch (e) { return true; }
   }
@@ -970,6 +1025,8 @@
     createState: createState, rollThrow: rollThrow,
     canBuyUpgrade: canBuyUpgrade, buyUpgrade: buyUpgrade,
     canBuyShield: canBuyShield, buyShield: buyShield,
+    HERO_CHANCE: HERO_CHANCE, HERO_GOLD_PER_PCT: HERO_GOLD_PER_PCT, HEROES: HEROES,
+    heroGoldOf: heroGoldOf, rollHero: rollHero,
     MAX_ART_LV: MAX_ART_LV, ART_LV_INCOME: ART_LV_INCOME, ART_LV_FIND: ART_LV_FIND,
     artUpCost: artUpCost, artLvOf: artLvOf, artIncomeOf: artIncomeOf,
     artFindMult: artFindMult, artIncomePerSec: artIncomePerSec, artTotalLevels: artTotalLevels,
@@ -977,6 +1034,7 @@
     canBuyArt: canBuyArt, buyArtUpgrade: buyArtUpgrade,
     newGamePlus: newGamePlus,
     serialize: serialize, deserialize: deserialize, save: save, load: load, clearSave: clearSave,
+    hasSave: hasSave,
     rulesSeen: rulesSeen, markRulesSeen: markRulesSeen,
     fmt: fmt, fmtTime: fmtTime
   };
@@ -2490,9 +2548,9 @@ var GEAR_DEFS = {
   wand:   { parent: 'head',  pos: [-0.55, 0.22, -0.11],  rot: [-0.25, 0.4, 0.55], scale: 1.30, moteR: 0.34, moteY: 0.62, aura: 1.0, build: buildWand },
   skadi:  { parent: 'head',  pos: [0, 0.27, 0.02],       rot: [0.10, 0, 0],      scale: 1.14, moteR: 0.68, moteY: 0.06, aura: 1.1, build: buildSkadi },
   heart:  { parent: 'group', pos: [0, 3.62, 1.34],       rot: [-0.22, 0, 0],     scale: 1.45, moteR: 0.46, moteY: 0.00, aura: 1.2, build: buildHeart },
-  bkb:    { parent: 'group', pos: [1.24, 4.60, -0.06],   rot: [0, 0, -0.20],     scale: 1.15, moteR: 0.62, moteY: 0.16, aura: 1.4, build: buildBkb },
-  mkb:    { parent: 'armR',  pos: [0, -1.72, 0.07],      rot: [0.12, 0, 0],      scale: 1.12, moteR: 0.46, moteY: 0.04, aura: 1.0, build: buildMkb },
-  deso:   { parent: 'armL',  pos: [0, -1.74, 0.06],      rot: [0.12, 0, 0],      scale: 1.10, moteR: 0.48, moteY: 0.04, aura: 1.1, build: buildDeso },
+  bkb:    { parent: 'group', pos: [1.30, 5.16, 0.02],    rot: [-1.0, 0, -0.15],  scale: 1.15, moteR: 0.68, moteY: 0.10, aura: 1.5, build: buildBkb },
+  mkb:    { parent: 'group', pos: [-0.10, 3.70, -1.66],  rot: [0, -0.06, -0.60], scale: 1.15, moteR: 0.62, moteY: 0.20, aura: 1.5, build: buildMkb },
+  deso:   { parent: 'group', pos: [1.20, 1.86, 0.58],    rot: [0, 0.80, -0.45],  scale: 1.20, moteR: 0.52, moteY: 0.34, aura: 1.3, build: buildDeso },
   blink:  { parent: 'group', pos: [1.48, 2.26, 0.84],    rot: [0, -0.62, -0.30], scale: 1.25, moteR: 0.44, moteY: -0.16, aura: 1.0, build: buildBlink },
   mael:   { parent: 'group', pos: [-1.48, 2.24, 0.84],   rot: [0, 0.62, 0.34],   scale: 1.25, moteR: 0.52, moteY: 0.14, aura: 1.2, build: buildMael },
   bfly:   { parent: 'group', pos: [0, 4.74, -1.34],      rot: [-0.30, 0, 0],     scale: 1.15, moteR: 1.15, moteY: 0.38, aura: 2.2, auraPos: [0, 0.35, -0.45], build: buildBfly },
@@ -2576,7 +2634,12 @@ function buildSkadi() {
   put(g, tor(0.50, 0.020, 4, 16), MAT.metal, 0, 0.06, 0, Math.PI / 2);
   var gemM = gearGlow(0x3f9fd8, 1.35);
   glow.push(gemM);
-  var gem = put(g, new THREE.IcosahedronGeometry(0.095, 0), gemM, 0, 0.05, 0.50);
+  var gem = put(g, sph(0.115, 9, 7), gemM, 0, 0.06, 0.52);                   // само ОКО
+  put(g, sph(0.055, 7, 5), gearGlow(0xbfe8ff, 1.1), 0, 0.06, 0.60);          // блик в глубине
+  for (var cl = 0; cl < 4; cl++) {                                           // когти-оправa
+    var ca = cl * Math.PI / 2 + Math.PI / 4;
+    put(g, cone(0.028, 0.14, 4), mIce, Math.cos(ca) * 0.115, 0.06 + Math.sin(ca) * 0.115, 0.50, 0, 0, ca + Math.PI / 2);
+  }
   [-1, 1].forEach(function (s) {
     put(g, cone(0.055, 0.26, 5), mIce, s * 0.40, 0.14, 0.26, -0.35, 0, s * 0.55);
     put(g, cone(0.040, 0.18, 5), mIce, s * 0.51, 0.10, -0.04, 0, 0, s * 0.95);
@@ -2626,79 +2689,96 @@ function buildHeart() {
   };
 }
 
-/* 🛡️ Посох Чёрного Короля — чёрно-золотой наплечник с руной */
+/* 🛡️ Посох Чёрного Короля — ЧЁРНО-ЗОЛОТАЯ ДУБИНА-ПОСОХ, лежит на плече.
+      Это «bar»: гранёное чёрное тело, золотые кольца и голова-навершие. */
 function buildBkb() {
   var g = new THREE.Group(), glow = [];
   var mBlack = gearMat(0x1b1917, { roughness: 0.45, metalness: 0.58 });
-  var shell = put(g, new THREE.SphereGeometry(0.60, 10, 7, 0, Math.PI * 2, 0, Math.PI * 0.56), mBlack, 0, 0, 0);
-  shell.scale.set(1.04, 1.0, 1.0);
-  put(g, tor(0.60, 0.045, 5, 14), MAT.gold, 0, -0.04, 0, Math.PI / 2);
-  for (var i = 0; i < 5; i++) {                                             // гребень шипов
-    var a = -0.95 + i * 0.48;
-    put(g, cone(0.055, 0.28, 5), MAT.gold,
-        Math.sin(a) * 0.50, 0.24 + Math.cos(a) * 0.12, Math.cos(a) * 0.30,
-        Math.cos(a) * 0.55, 0, -Math.sin(a) * 0.75);
+  put(g, cyl(0.085, 0.108, 1.32, 8), mBlack, 0, 0, 0);                       // тело посоха
+  for (var i = -1; i <= 1; i++) {
+    put(g, tor(0.112, 0.026, 5, 12), MAT.gold, 0, i * 0.38, 0, Math.PI / 2);  // золотые кольца
   }
-  var runeM = gearGlow(0xff9a10, 1.4);
+  put(g, cyl(0.125, 0.095, 0.22, 8), MAT.gold, 0, 0.74, 0);                  // голова
+  put(g, cone(0.105, 0.24, 6), MAT.gold, 0, 0.94, 0);                        // шпиль
+  put(g, cyl(0.118, 0.135, 0.18, 8), MAT.gold, 0, -0.72, 0);                 // обушок
+  put(g, sph(0.105, 7, 5), mBlack, 0, -0.86, 0);
+  var runeM = gearGlow(0xff9a10, 1.3);                                       // руна короля
   glow.push(runeM);
-  put(g, cyl(0.115, 0.115, 0.05, 6), runeM, 0.04, 0.14, 0.50, 1.25, 0, 0);
-  put(g, box(0.045, 0.20, 0.04), runeM, 0.04, 0.14, 0.545, 1.25, 0, 0);
-  var aura = gearSprite(0xffc860, 1.5);
-  aura.position.set(0, 0.08, 0.12);
+  put(g, cyl(0.095, 0.095, 0.05, 6), runeM, 0, 0.06, 0.10, 1.35, 0, 0);
+  put(g, box(0.04, 0.17, 0.04), runeM, 0, 0.06, 0.14, 1.35, 0, 0);
+  var strapPts = [new THREE.Vector3(0, -0.02, -0.09),
+                  new THREE.Vector3(0, -0.12, -0.24),
+                  new THREE.Vector3(0, -0.18, -0.38)];
+  put(g, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(strapPts), 8, 0.032, 4, false), MAT.leatherDk);
+  var aura = gearSprite(0xffc860, 1.4);
+  aura.position.set(0, 0.55, 0);
   g.add(aura);
   return {
     g: g, glow: glow, parts: { aura: aura },
     anim: function (o, dt, tt) {
-      o.parts.aura.material.opacity = 0.14 + 0.13 * Math.abs(Math.sin(tt * 1.35));
-      o.parts.aura.scale.setScalar(1.5 + 0.20 * Math.sin(tt * 1.35));
+      o.parts.aura.material.opacity = 0.12 + 0.12 * Math.abs(Math.sin(tt * 1.35));
+      o.parts.aura.scale.setScalar(1.4 + 0.20 * Math.sin(tt * 1.35));
     }
   };
 }
 
-/* 🐒 Посох Короля Обезьян — золотой наруч с мордой царя обезьян */
+/* 🐒 Посох Короля Обезьян — ЗОЛОТОЙ ПОСОХ с головой царя обезьян на вершине,
+      пристёгнут по диагонали спины (вместе с рапирой образует крест). */
 function buildMkb() {
   var g = new THREE.Group(), glow = [];
-  put(g, cyl(0.348, 0.388, 0.30, 8), MAT.gold, 0, 0.06, 0);
-  put(g, cyl(0.332, 0.348, 0.14, 8), MAT.gold, 0, 0.26, 0);
-  put(g, tor(0.368, 0.030, 4, 12), gearMat(0xb8862e, { metalness: 0.8, roughness: 0.25 }), 0, -0.11, 0, Math.PI / 2);
-  for (var i = 0; i < 3; i++) {                                             // шипы
-    var a = -0.60 + i * 0.60;
-    put(g, cone(0.045, 0.20, 5), MAT.gold,
-        Math.sin(a) * 0.37, 0.06, Math.cos(a) * 0.37,
-        Math.cos(a) * 1.35, 0, -Math.sin(a) * 1.35);
-  }
-  var face = new THREE.Group(); face.position.set(0, 0.12, 0.34); g.add(face);
-  put(face, scaled(mesh(sph(0.115, 8, 6), MAT.gold, 0, 0, 0), 1, 0.92, 0.72));
-  [-1, 1].forEach(function (s) { put(face, sph(0.045, 6, 5), MAT.gold, s * 0.115, 0.015, -0.012); });
-  put(face, sph(0.026, 5, 4), MAT.dark, -0.045, 0.022, 0.072);
-  put(face, sph(0.026, 5, 4), MAT.dark, 0.045, 0.022, 0.072);
-  put(face, box(0.075, 0.022, 0.03), MAT.dark, 0, -0.055, 0.072);
-  var eyeM = gearGlow(0xff4a2a, 1.7);
+  put(g, cyl(0.042, 0.052, 2.05, 7), MAT.gold, 0, 0, 0);                     // древко
+  put(g, tor(0.062, 0.020, 4, 10), gearMat(0xb8862e, { metalness: 0.8, roughness: 0.25 }), 0, 0.58, 0, Math.PI / 2);
+  put(g, tor(0.062, 0.020, 4, 10), gearMat(0xb8862e, { metalness: 0.8, roughness: 0.25 }), 0, -0.52, 0, Math.PI / 2);
+  put(g, cyl(0.078, 0.062, 0.24, 7), MAT.gold, 0, -1.12, 0);                 // обушок
+  put(g, cone(0.055, 0.18, 6), gearMat(0x8a5a10, { metalness: 0.7, roughness: 0.3 }), 0, -1.30, 0, Math.PI);
+  var ringM = gearGlow(0xd03020, 1.2);                                       // алое кольцо у вершины
+  glow.push(ringM);
+  put(g, tor(0.078, 0.026, 4, 10), ringM, 0, 0.88, 0, Math.PI / 2);
+  var head = new THREE.Group(); head.position.set(0, 1.16, 0); head.rotation.y = Math.PI; g.add(head); // голова царя обезьян (лицом наружу от спины)
+  put(head, scaled(mesh(sph(0.15, 9, 7), MAT.gold, 0, 0, 0), 1, 1.05, 0.9));
+  [-1, 1].forEach(function (s) { put(head, sph(0.062, 6, 5), MAT.gold, s * 0.155, 0.02, -0.01); });
+  put(head, sph(0.032, 5, 4), MAT.dark, -0.06, 0.03, 0.115);
+  put(head, sph(0.032, 5, 4), MAT.dark, 0.06, 0.03, 0.115);
+  put(head, box(0.10, 0.03, 0.04), MAT.dark, 0, -0.075, 0.115);
+  put(head, cone(0.05, 0.13, 5), MAT.gold, 0, 0.17, 0);                      // хохолок
+  var eyeM = gearGlow(0xff4a2a, 1.5);
   glow.push(eyeM);
-  put(g, sph(0.042, 6, 5), eyeM, 0, 0.24, 0.33);                            // алый самоцвет
-  return { g: g, glow: glow, parts: { face: face },
-    anim: function (o, dt, tt) { o.glow[0].emissiveIntensity = o.glowBase[0] * (0.85 + 0.35 * Math.sin(tt * 3.1)); } };
+  put(head, sph(0.05, 6, 5), eyeM, 0, 0.10, 0.10);                           // самоцвет во лбу
+  return {
+    g: g, glow: glow, parts: { head: head },
+    anim: function (o, dt, tt) {
+      o.glow[1].emissiveIntensity = o.glowBase[1] * (0.85 + 0.35 * Math.sin(tt * 3.1));
+      o.parts.head.rotation.z = Math.sin(tt * 0.9) * 0.06;
+    }
+  };
 }
 
-/* 🌑 Опустошитель — шипастая рукавица, сочащаяся порчей */
+/* 🌑 Опустошитель — ПОГНУТЫЙ ДВУХЛЕЗВИЙНЫЙ ТОПОР с алым камнем, в ножнах на бедре.
+      Тот самый «минус броня»: ржавое железо, шипы и порча. */
 function buildDeso() {
   var g = new THREE.Group(), glow = [];
-  var mIron = gearMat(0x2a2226, { roughness: 0.55, metalness: 0.62 });
-  put(g, cyl(0.338, 0.378, 0.50, 8), mIron, 0, 0, 0);
-  put(g, cyl(0.302, 0.338, 0.16, 8), mIron, 0, 0.30, 0);
-  put(g, tor(0.368, 0.032, 4, 12), gearMat(0x6a2a24, { metalness: 0.5, roughness: 0.4 }), 0, -0.23, 0, Math.PI / 2);
-  for (var i = 0; i < 4; i++) {                                             // шипы
-    var a = -0.80 + i * 0.53;
-    put(g, cone(0.050, 0.26, 5), mIron,
-        Math.sin(a) * 0.35, -0.06 + (i % 2) * 0.17, Math.cos(a) * 0.35,
-        Math.cos(a) * 1.40, 0, -Math.sin(a) * 1.40);
-  }
-  var orbM = gearGlow(0xc8302a, 1.4);
+  var mIron = gearMat(0x4a4048, { roughness: 0.42, metalness: 0.72 });
+  put(g, cyl(0.038, 0.046, 0.95, 6), gearMat(0x241a12, { roughness: 0.95 }), 0, -0.22, 0); // рукоять
+  put(g, tor(0.052, 0.014, 4, 8), MAT.metalDk, 0, 0.18, 0, Math.PI / 2);
+  put(g, sph(0.055, 6, 5), MAT.metalDk, 0, -0.70, 0);                        // навершие
+  var shp = new THREE.Shape();                                              // лезвие-полумесяц
+  shp.moveTo(0, 0.30);
+  shp.bezierCurveTo(0.36, 0.26, 0.48, 0.04, 0.42, -0.24);
+  shp.bezierCurveTo(0.30, -0.11, 0.16, -0.07, 0.02, -0.07);
+  shp.bezierCurveTo(0.11, 0.08, 0.11, 0.18, 0, 0.30);
+  var bladeGeo = new THREE.ExtrudeGeometry(shp, { depth: 0.05, bevelEnabled: false, curveSegments: 8 });
+  var b1 = mesh(bladeGeo, mIron, 0, 0.22, -0.025); g.add(b1);
+  var b2 = mesh(bladeGeo, mIron, 0, 0.22, -0.025); b2.scale.x = -1; g.add(b2);
+  put(g, cone(0.045, 0.22, 5), mIron, 0, 0.56, 0);                          // шипы головы
+  put(g, cone(0.038, 0.17, 5), mIron, 0.15, 0.46, 0, 0, 0, -0.7);
+  put(g, cone(0.038, 0.17, 5), mIron, -0.15, 0.46, 0, 0, 0, 0.7);
+  var orbM = gearGlow(0xd03028, 1.7);                                       // алый камень порчи
   glow.push(orbM);
-  var orb = put(g, new THREE.IcosahedronGeometry(0.10, 0), orbM, 0, 0.06, 0.36);
-  put(g, scaled(mesh(sph(0.14, 7, 5), gearGlow(0x8a120e, 0.9, { transparent: true, opacity: 0.35 }), 0, 0.06, 0.36), 1, 1, 0.7));
-  var smoke = gearSprite(0xd0402a, 1.1);
-  smoke.position.set(0, 0.06, 0.34);
+  var orb = put(g, new THREE.IcosahedronGeometry(0.085, 0), orbM, 0, 0.26, 0.02);
+  put(g, box(0.15, 0.52, 0.11), gearMat(0x3a2413, { roughness: 0.95 }), 0, -0.44, 0);  // ножны на бедре
+  put(g, box(0.18, 0.075, 0.13), MAT.metalDk, 0, -0.19, 0);
+  var smoke = gearSprite(0xd0402a, 1.0);
+  smoke.position.set(0, 0.26, 0.06);
   g.add(smoke);
   return {
     g: g, glow: glow, parts: { orb: orb, smoke: smoke },
@@ -2706,7 +2786,7 @@ function buildDeso() {
       o.parts.orb.rotation.y += dt * 1.4;
       o.parts.orb.rotation.x += dt * 0.8;
       o.parts.smoke.material.opacity = 0.14 + 0.13 * Math.sin(tt * 2.4);
-      o.parts.smoke.scale.setScalar(1.1 + 0.16 * Math.sin(tt * 1.9));
+      o.parts.smoke.scale.setScalar(1.0 + 0.16 * Math.sin(tt * 1.9));
     }
   };
 }
@@ -3094,6 +3174,165 @@ function updateGear(dt) {
   }
 }
 
+/* ============================================================
+   ГОСТИ ИЗ ЛЕСА: Crystal Maiden и Sniper
+   С шансом 5% герой «притягивается» к Пуджу: влетает дугой из темноты,
+   оставляет мешок золота (монеты + волна) и уносится обратно.
+   Золото начисляет логика (heroGoldOf), здесь только представление.
+   ============================================================ */
+var HERO_RIGS = {};
+var heroActive = null;
+
+/* ---------- Crystal Maiden: ледяная дева с посохом ---------- */
+function buildHeroCM() {
+  var g = new THREE.Group(), parts = {};
+  var mIce = gearMat(0xbfe0f2, { roughness: 0.35, metalness: 0.15 });
+  var mDress = gearMat(0x5a90c8, { roughness: 0.6 });
+  var mSkin = gearMat(0xe8d0c0, { roughness: 0.7 });
+  var mHair = gearMat(0xe8f4ff, { roughness: 0.5 });
+  put(g, cone(0.44, 1.15, 9), mDress, 0, 0.58, 0);                       // платье-колокол
+  put(g, tor(0.42, 0.035, 5, 12), mIce, 0, 0.10, 0, Math.PI / 2);       // подол
+  put(g, cyl(0.16, 0.21, 0.44, 8), mDress, 0, 1.30, 0);                 // torso
+  put(g, tor(0.185, 0.03, 5, 10), mIce, 0, 1.12, 0, Math.PI / 2);       // пояс
+  put(g, sph(0.16, 9, 7), mSkin, 0, 1.66, 0);                           // голова
+  put(g, scaled(mesh(sph(0.185, 9, 7), mHair, 0, 1.72, -0.02), 1, 0.95, 1));   // волосы
+  put(g, cone(0.075, 0.62, 6), mHair, 0, 1.42, -0.20, 0.55);            // коса
+  put(g, tor(0.165, 0.022, 4, 10), mIce, 0, 1.76, 0, Math.PI / 2);      // венец
+  put(g, sph(0.028, 5, 4), MAT.dark, -0.06, 1.66, 0.14);
+  put(g, sph(0.028, 5, 4), MAT.dark, 0.06, 1.66, 0.14);
+  [-1, 1].forEach(function (sd) {                                       // руки
+    put(g, cyl(0.045, 0.05, 0.52, 6), mDress, sd * 0.20, 1.32, 0.06, 0.5, 0, sd * 0.5);
+  });
+  var staff = new THREE.Group(); staff.position.set(0.30, 1.10, 0.12); g.add(staff);
+  put(staff, cyl(0.024, 0.032, 1.75, 6), gearMat(0xd8e8f4, { roughness: 0.4 }), 0, 0.55, 0);
+  var crysM = gearGlow(0x6ad0e8, 1.3);
+  parts.crysM = crysM;
+  parts.crys = put(staff, new THREE.OctahedronGeometry(0.13, 0), crysM, 0, 1.50, 0);
+  put(staff, sph(0.05, 6, 5), gearGlow(0xd8f8ff, 1.0), 0, 1.50, 0);
+  parts.aura = gearSprite(0x9adcf0, 1.7);
+  parts.aura.position.set(0, 1.05, 0);
+  g.add(parts.aura);
+  return { g: g, parts: parts,
+    anim: function (r, dt, tt) {
+      r.parts.crys.rotation.y += dt * 2.2;
+      r.parts.crysM.emissiveIntensity = 1.0 + 0.5 * Math.sin(tt * 3.4);
+      r.parts.aura.material.opacity = 0.22 + 0.10 * Math.sin(tt * 2.2);
+    } };
+}
+
+/* ---------- Sniper: стрелок с винтовкой ---------- */
+function buildHeroSN() {
+  var g = new THREE.Group(), parts = {};
+  var mCoat = gearMat(0x5a6a3a, { roughness: 0.85 });
+  var mBrown = gearMat(0x4a3620, { roughness: 0.9 });
+  var mSkin = gearMat(0xd8b090, { roughness: 0.7 });
+  var mMetal = gearMat(0x3a3f44, { metalness: 0.7, roughness: 0.4 });
+  [-1, 1].forEach(function (sd) { put(g, cyl(0.075, 0.085, 0.74, 6), mBrown, sd * 0.10, 0.37, 0); });
+  put(g, cyl(0.21, 0.30, 0.78, 8), mCoat, 0, 1.10, 0);                  // шинель
+  put(g, tor(0.255, 0.035, 5, 10), mBrown, 0, 0.92, 0, Math.PI / 2);    // ремень
+  put(g, sph(0.05, 5, 4), MAT.gold, 0, 0.92, 0.24);                     // бляха
+  put(g, sph(0.15, 9, 7), mSkin, 0, 1.64, 0);                           // голова
+  put(g, tor(0.145, 0.045, 5, 10), gearMat(0xb04030, { roughness: 0.8 }), 0, 1.48, 0.02, 0.25); // шарф
+  put(g, cyl(0.165, 0.175, 0.12, 8), mCoat, 0, 1.76, 0);                // тулья
+  put(g, cyl(0.27, 0.27, 0.035, 9), mCoat, 0, 1.71, 0.02);              // поля шляпы
+  put(g, cyl(0.05, 0.05, 0.05, 7), mMetal, -0.06, 1.66, 0.14, Math.PI / 2);  // окуляры
+  put(g, cyl(0.05, 0.05, 0.05, 7), mMetal, 0.06, 1.66, 0.14, Math.PI / 2);
+  put(g, cyl(0.045, 0.05, 0.5, 6), mCoat, -0.20, 1.28, 0.10, 0.9, 0, 0.5);   // руки к винтовке
+  put(g, cyl(0.045, 0.05, 0.5, 6), mCoat, 0.20, 1.24, 0.16, 1.1, 0, -0.5);
+  var rifle = new THREE.Group(); rifle.position.set(0.10, 1.18, 0.22); rifle.rotation.set(1.25, 0, -0.25); g.add(rifle);
+  put(rifle, box(0.055, 0.10, 1.15), mBrown, 0, 0, -0.15);              // ложа
+  put(rifle, cyl(0.022, 0.022, 0.85, 6), mMetal, 0, 0, 0.72, Math.PI / 2);   // ствол
+  put(rifle, cyl(0.035, 0.035, 0.22, 6), mMetal, 0, 0.07, 0.30, Math.PI / 2); // оптика
+  parts.flash = gearSprite(0xffd070, 0.9);
+  parts.flash.position.set(0, 0, 1.18);
+  parts.flash.material.opacity = 0;
+  rifle.add(parts.flash);
+  parts.rifle = rifle;
+  return { g: g, parts: parts,
+    anim: function (r, dt, tt) {
+      r.parts.rifle.rotation.z = -0.25 + Math.sin(tt * 1.4) * 0.03;
+      if (r.parts.flash.material.opacity > 0) r.parts.flash.material.opacity = Math.max(0, r.parts.flash.material.opacity - dt * 4);
+    } };
+}
+
+function heroRig(id) {
+  if (HERO_RIGS[id]) return HERO_RIGS[id];
+  var built = id === 'cm' ? buildHeroCM() : buildHeroSN();
+  var def = L.HEROES.filter(function (h) { return h.id === id; })[0] || L.HEROES[0];
+  var r = {
+    id: id, def: def, g: built.g, parts: built.parts, anim: built.anim,
+    state: 'hidden', t: 0, fired: false, gold: 0,
+    from: new THREE.Vector3(id === 'cm' ? -10.5 : 11.0, 2.6, -13.0),
+    to:   new THREE.Vector3(id === 'cm' ? -3.05 : 3.10, 0, 2.55)
+  };
+  r.g.visible = false;
+  r.g.traverse(function (o) { if (o.isMesh) { o.castShadow = false; } });
+  scene.add(r.g);
+  HERO_RIGS[id] = r;
+  return r;
+}
+
+/* ---------- запуск визита ---------- */
+function heroVisit(hero, gold) {
+  var r = heroRig(hero.id);
+  if (!r) return;
+  if (heroActive && heroActive !== hero.id) {
+    var prev = HERO_RIGS[heroActive];
+    if (prev) { prev.state = 'hidden'; prev.g.visible = false; }
+  }
+  heroActive = hero.id;
+  r.state = 'in'; r.t = 0; r.fired = false; r.gold = gold || 0;
+  r.g.visible = true;
+  r.g.position.copy(r.from);
+  r.g.scale.setScalar(0.55);
+}
+
+/* ---------- покадровое обновление визита ---------- */
+function updateHeroVisit(dt) {
+  if (!heroActive) return;
+  var r = HERO_RIGS[heroActive];
+  if (!r || r.state === 'hidden') { heroActive = null; return; }
+  r.t += dt;
+  if (r.state === 'in') {
+    var k = Math.min(1, r.t / 0.75);
+    var e = 1 - Math.pow(1 - k, 3);
+    r.g.position.lerpVectors(r.from, r.to, e);
+    r.g.position.y = r.to.y + Math.sin(k * Math.PI) * 1.35;             // дуга притягивания
+    r.g.scale.setScalar(0.55 + 0.45 * e);
+    if (k >= 1) {
+      r.state = 'hold'; r.t = 0;
+      r.g.position.copy(r.to); r.g.position.y = r.to.y; r.g.scale.setScalar(1);
+      spawnWave(_v1.copy(r.to).setY(r.to.y + 1.1), r.def.color, 4.2, 0.55);
+      shake(0.10);
+    }
+  } else if (r.state === 'hold') {
+    r.g.position.y = r.to.y + Math.abs(Math.sin(t * 3.1)) * 0.06;
+    if (!r.fired && r.t > 0.30) {
+      r.fired = true;
+      _v1.copy(r.g.position).setY(r.g.position.y + 1.2);
+      burst(_v1, 14, MAT.gold, 3.0, 0.55, 6);                           // мешок золота
+      spawnWave(_v1, 0xffe9a8, 3.6, 0.5);
+      if (r.id === 'cm') {
+        spawnWave(_v1.copy(r.g.position).setY(r.g.position.y + 1.5), 0x9adcf0, 5.0, 0.7);
+        burst(_v1, 8, sparkMat(0x9adcf0), 2.6, 0.4, 2.2);
+      } else {
+        r.parts.flash.material.opacity = 1;
+        burst(_v1.copy(r.g.position).setY(r.g.position.y + 1.3), 6, sparkMat(0xffd070), 4.2, 0.35, 7);
+      }
+    }
+    if (r.t > 1.75) { r.state = 'out'; r.t = 0; }
+  } else {
+    var k2 = Math.min(1, r.t / 0.6);
+    var e2 = k2 * k2;
+    r.g.position.lerpVectors(r.to, r.from, e2);
+    r.g.position.y = r.to.y + Math.sin(k2 * Math.PI) * 0.9;
+    r.g.scale.setScalar(Math.max(0.05, 1 - 0.5 * k2));
+    if (k2 >= 1) { r.state = 'hidden'; r.g.visible = false; heroActive = null; }
+  }
+  r.g.rotation.y = Math.atan2(-r.g.position.x, -r.g.position.z);         // лицом к Пуджу
+  if (r.anim) r.anim(r, dt, t);
+}
+
 /* ---------- корона Мясника ---------- */
 var crown = null;
 function buildCrown() {
@@ -3318,6 +3557,7 @@ function impact() {
     spawnWave(HX.target, 0x6aa8d0, 6.5, 0.55);
     if (typeof sndShield === 'function') sndShield();
     if (typeof onShieldSave === 'function') onShieldSave(ev);
+    if (typeof handleHero === 'function') handleHero(ev);
   } else { // fail
     catchG.visible = false;
     if (ev.lost > 0) {
@@ -3328,9 +3568,11 @@ function impact() {
       groundPulse(0x8a120e);   // обрыв цепи — земля краснеет
       if (typeof sndBreak === 'function') sndBreak();
       if (typeof onChainBreak === 'function') onChainBreak(ev);
+      if (typeof handleHero === 'function') handleHero(ev);
     } else {
       if (typeof sndFail === 'function') sndFail();
       if (typeof onEmptyHook === 'function') onEmptyHook(ev);
+      if (typeof handleHero === 'function') handleHero(ev);
     }
   }
 }
@@ -3492,7 +3734,8 @@ function lookAtHook(blend) {
    ============================================================ */
 
 var L = window.PUDGE_LOGIC;
-var S = L.load();
+var HAD_SAVE = L.hasSave();      // игра продолжится с сохранения
+var S = L.load();                // sessionFirst при этом пуст: новый заход
 
 /* ---------- DOM-ссылки ---------- */
 var $ = function (id) { return document.getElementById(id); };
@@ -3598,6 +3841,11 @@ function sndArtUpgrade(lv) {
 }
 // тихий «дзынь» капающего золота (раз в 2 секунды, не мешает)
 function sndDrip()    { tone(1560 + Math.random() * 260, 0.05, 'sine', 0.028); }
+// гости из леса
+function sndHeroCM()  { tone(1046, 0.14, 'sine', 0.10); tone(1568, 0.18, 'sine', 0.08, undefined, 0.08);
+                        tone(2093, 0.26, 'triangle', 0.06, undefined, 0.16); noise(0.30, 0.05, 3000, 6500, 0.05); }
+function sndHeroSN()  { noise(0.09, 0.15, 1800, 300); tone(170, 0.12, 'square', 0.10, 90);
+                        tone(880, 0.10, 'triangle', 0.08, undefined, 0.20); tone(1320, 0.14, 'sine', 0.07, undefined, 0.28); }
 // экипировка появилась на Пудже
 function sndEquip()   { tone(320, 0.10, 'triangle', 0.10, 620); noise(0.14, 0.06, 700, 2600, 0.03); }
 // экипировка осыпалась (обрыв цепочки)
@@ -4081,6 +4329,19 @@ function onThrowStarted() {
 function onThrowEnded() {
   btnThrow.classList.remove('busy');
 }
+/* ---------- гость из леса: тост, звук, визит в 3D ---------- */
+function handleHero(ev) {
+  if (!ev || !ev.hero) return;
+  var h = ev.hero;
+  heroVisit(h, ev.heroGold);
+  if (h.id === 'cm') sndHeroCM(); else sndHeroSN();
+  toast(h.icon + ' <b>' + h.name + '</b> притянулся к Пуджу из леса!<br>' +
+        '<span style="color:#ffd970">+' + L.fmt(ev.heroGold) + ' золота</span> ' +
+        '<span style="color:#8f7c5c">= шанс ' + Math.round(L.chanceOf(S) * 100) + '% × ' +
+        L.HERO_GOLD_PER_PCT + ' × Алчность ×' + L.goldMultOf(S).toFixed(1) + '</span><br>' +
+        '<i style="color:#a3906a">' + h.quote + '</i>', 'hero hero-' + h.id, 4600);
+  setTimeout(function () { goldFloater(ev.heroGold, true); }, 800);
+}
 function onArtifact(ev) {
   orbitAdd(ev.art, false, ev.chain - 1);
   gearEquip(ev.art.id, false);        // предмет появляется НА Пудже (ботинки — на ноги и т.д.)
@@ -4093,6 +4354,7 @@ function onArtifact(ev) {
   flash(ev.isNew ? 'flash-first' : 'flash-art');
   flyToSlot(ev.art);
   if (Math.random() < 0.4) toast(PUDGE_QUOTES_ART[Math.floor(Math.random() * PUDGE_QUOTES_ART.length)], 'quote', 1600);
+  handleHero(ev);
   renderAll(); saveNow();
 }
 function onShieldSave(ev) {
@@ -4219,6 +4481,7 @@ function renderStats() {
     ['Золота заработано', L.fmt(st.goldEarned)],
     ['— из него пассивно (предметы)', L.fmt(st.passiveGold || 0) + ' · +' + fmtRate(L.artIncomePerSec(S)) + '/с сейчас'],
     ['Уровней предметов куплено', L.fmt(st.artUpgrades || 0) + ' · всего ' + L.artTotalLevels(S) + '/' + (L.MAX_ART_LV * L.TOTAL_ARTS)],
+    ['Героев пришло из леса', L.fmt(st.heroVisits || 0) + ' · подарено ' + L.fmt(st.heroGold || 0) + ' золота'],
     ['Побед', st.wins],
     ['Время в игре', L.fmtTime(st.playMs)]
   ];
@@ -4313,6 +4576,17 @@ renderAll();
 S.chainIds.forEach(function (id, ix) { if (L.ART_BY_ID[id]) orbitAdd(L.ART_BY_ID[id], true, ix); });
 gearSync(true);                 // вещи из сохранённой цепочки — сразу на Пудже, без эффектов
 lastSyncGold = S.gold;
+
+/* Обновление страницы: игра продолжается (золото, цепочка, прокачка), но все
+   предметы снова считаются НЕПОДОБРАННЫМИ — бонусы первой находки доступны заново. */
+if (HAD_SAVE && (S.stats.artifacts > 0 || S.chainIds.length > 0)) {
+  setTimeout(function () {
+    toast('🌅 <b>Новый заход:</b> прогресс сохранён, но предметы снова считаются ненайденными — ' +
+          'все 12 бонусов за первую находку доступны заново.', 'good', 4200);
+    var pa = $('panel-arts');
+    if (pa) { pa.classList.add('fresh'); setTimeout(function () { pa.classList.remove('fresh'); }, 3000); }
+  }, 900);
+}
 // правила не всплывают сами — только по кнопке 📜 в HUD
 
 var clock = new THREE.Clock();
@@ -4333,6 +4607,7 @@ function animate() {
   updateWinRing(dt);
   updateChainOrbit(dt);
   updateGear(dt);          // вещи на Пудже: трепещут, бьются, сияют по уровню
+  updateHeroVisit(dt);     // гости из леса: CM и Sniper
   updateGroundPulse(dt);
   updateWinCine(dt);
   updateCam(dt);
@@ -4415,6 +4690,18 @@ window.__pudgeGame = {
   },
   testUnequipAll: function () { gearUnequipAll(true); },
   getPassiveRate: function () { return L.artIncomePerSec(S); },
+  /* --- гости из леса --- */
+  getHero: function () {
+    if (!heroActive) return null;
+    var r = HERO_RIGS[heroActive];
+    return { id: heroActive, state: r.state, t: +r.t.toFixed(2), gold: r.gold,
+             pos: [+r.g.position.x.toFixed(2), +r.g.position.y.toFixed(2), +r.g.position.z.toFixed(2)] };
+  },
+  testHero: function (id, gold) {
+    var h = L.HEROES.filter(function (x) { return x.id === (id || 'cm'); })[0] || L.HEROES[0];
+    heroVisit(h, gold === undefined ? 500 : gold);
+    return h.id;
+  },
   getWinCine: function () { return { on: winCine.on, t: +winCine.t.toFixed(2) }; },
   getCrown: function () {
     if (!crown) return null;
