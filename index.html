@@ -1,11 +1,12 @@
 
 
+
 <!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>PUDGE: HOOK CLICKER — собери 12 артефактов Dota 2 подряд</title>
+<title>PUDGE: HOOK CLICKER v4 — прокачка артефактов и экипировка на Пудже</title>
 <!--
   v3 — исправления и улучшения:
   · Деревья больше не закрывают обзор: между камерой и Пуджем расчищен
@@ -31,6 +32,30 @@
     раскол при обрыве), эскалация эффектов с глубиной цепи (панч FOV, вспышки
     факелов, пульс по земле, радость Пуджа), победный кинематограф: корона,
     левитация, орбитальный облёт камеры, залп 12 цветов, дождь из монет.
+  · v4.0 ПРОКАЧКА АРТЕФАКТОВ: оживлён заложенный в логике каркас (artLv) и
+    докручен до полноценной системы. Каждый из 12 предметов качается отдельно
+    до 8 ур.: уровень даёт пассивный доход (+1.2 золота/с за уровень, ×Алчность),
+    пока предмет лежит в цепочке, и +20% к золоту за его находку. Уровни
+    переживают обрыв цепочки и сохраняются. В панели «Артефакты» — карточки
+    с пипсами уровня, доходом и кнопкой улучшения; в HUD — чип «💎 +X/с»;
+    в правилах и статистике — новые разделы.
+  · v4.0 ЭКИПИРОВКА НА ПУДЖЕ: каждый найденный предмет появляется НА НЁМ своей
+    процедурной low-poly моделью — ботинки силы на ступнях, око Скади венцом на
+    лбу, сердце Тарраска амулетом на груди (бьётся), наплечник Чёрного Короля,
+    наруч Короля Обезьян с мордой, рукавица Опустошителя, кинжал и молот на
+    поясе (с молниями), крылья Бабочки за спиной (машут), рапира наискосок по
+    спине, жезл за ухом, скипетр Аганима парит рядом. Находка — вещь
+    материализуется с волной и искрами; обрыв цепочки — осыпается. Уровень
+    виден в 3D: вокруг вещи кружат искры по числу уровней, свечение растёт.
+  · v4.0 для тестов: отладочные ручки __pudgeGame.getGear()/testWear()/
+    testEquipAll()/setCam() (крупные планы экипировки в автотестах).
+  · v4.1 баланс и посадка: шаг стоимости улучшения круче (160 × 2.1^уровень
+    вместо 150 × 1.85^уровень — полная прокачка предмета ~55 тыс. вместо ~24);
+    все вещи увеличены (scale 1.1–1.45 у слота) и пересажены НА поверхность
+    тела — сердце и крылья больше не утоплены в пузо и горб, венец Скади
+    обхватывает голову снаружи, кинжал и молот висят на поясе снаружи,
+    рапира прихвачена к спине ремнями; на заблокированной кнопке улучшения
+    теперь только замок 🔒 (подсказка осталась в title).
 -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><path d='M10 4v7a4 4 0 1 1-8 0' fill='none' stroke='%23c4402e' stroke-width='3.2' stroke-linecap='round'/><circle cx='10' cy='3.4' r='2' fill='none' stroke='%239aa1a8' stroke-width='1.5'/></svg>">
 <style>
@@ -87,6 +112,12 @@
   .chip.bump b{animation:chipBump .4s cubic-bezier(.2,1.8,.4,1)}
   @keyframes chipBump{0%{transform:scale(1)}45%{transform:scale(1.35)}100%{transform:scale(1)}}
   #speedVal{color:#9ad0f0; font-size:13px; font-weight:bold}
+  /* пассивный доход от прокачанных артефактов */
+  #incomeVal{color:#b8e070; font-size:13px; font-weight:bold}
+  #incomeBox{transition:opacity .3s, box-shadow .3s}
+  #incomeBox.zero{opacity:.4}
+  #incomeBox.zero #incomeVal{color:#7d8f5a}
+  #incomeBox.drip{box-shadow:0 0 14px rgba(184,224,112,.35), inset 0 1px 0 rgba(255,230,170,.06)}
   #chainWrap{min-width:210px}
   #chainText{font-size:10.5px; letter-spacing:.24em; color:#b7a684; text-align:center; margin-bottom:4px; text-transform:uppercase}
   #chainBar{display:flex; gap:3px; height:12px}
@@ -174,20 +205,58 @@
   .sh-i{opacity:.22; filter:grayscale(1)}
   .sh-i.on{opacity:1; filter:none; text-shadow:0 0 8px rgba(106,168,208,.8)}
 
-  /* --- артефакты --- */
-  #artGrid{display:grid; grid-template-columns:repeat(3,1fr); gap:7px}
+  .art-head{
+    display:flex; justify-content:space-between; align-items:baseline; gap:8px;
+    font-size:10.5px; color:#8f7c5c; margin:-2px 0 9px; padding:4px 7px;
+    background:rgba(24,17,8,.6); border:1px solid rgba(190,150,80,.22); border-radius:4px;
+  }
+  .art-head .ah-inc{color:#a8c070}
+  .art-head .ah-lv{color:#7d6c50; letter-spacing:.04em}
+
+  /* --- артефакты + их прокачка --- */
+  #artGrid{display:grid; grid-template-columns:repeat(2,1fr); gap:7px}
   .art-slot{
-    position:relative; padding:8px 4px 6px; text-align:center; border-radius:5px;
+    position:relative; padding:8px 5px 6px; text-align:center; border-radius:5px;
     background:rgba(10,8,5,.6); border:1px solid rgba(90,72,45,.35);
     transition:.25s; cursor:default;
+    display:flex; flex-direction:column; align-items:center;
   }
   .art-slot .ico{
-    width:44px; height:34px; margin:0 auto; display:block; position:relative;
+    width:52px; height:40px; margin:0 auto; display:block; position:relative;
     filter:grayscale(1) brightness(.4); transition:.3s;
   }
   .art-slot .ico img{width:100%; height:100%; object-fit:contain; display:block}
-  .art-slot .ico .emo{display:none; font-size:26px; line-height:34px}
-  .art-slot .nm{display:block; font-size:8.5px; color:#6b5c44; letter-spacing:.02em; margin-top:3px; line-height:1.25; min-height:22px}
+  .art-slot .ico .emo{display:none; font-size:29px; line-height:40px}
+  .art-slot .nm{display:block; font-size:9px; color:#6b5c44; letter-spacing:.02em; margin-top:3px; line-height:1.25; min-height:22px}
+  /* уровни предмета */
+  .art-lv{display:flex; gap:2px; justify-content:center; align-items:center; height:8px; margin:1px 0 2px}
+  .art-lv i{
+    width:6px; height:6px; border-radius:50%; display:block; background:#20170c;
+    border:1px solid rgba(0,0,0,.85); box-shadow:inset 0 1px 2px #000; transition:.25s;
+  }
+  .art-lv i.on{background:linear-gradient(#ffe9a0,#c8901e); box-shadow:0 0 5px rgba(255,210,90,.8); border-color:rgba(255,220,120,.5)}
+  .art-slot.lvmax .art-lv i.on{background:linear-gradient(#d8ffe0,#4ae08a); box-shadow:0 0 7px rgba(120,255,170,.9)}
+  .art-inc{font-size:9px; line-height:1.3; color:#5f5440; min-height:23px; letter-spacing:.01em}
+  .art-inc b{color:#8a9a5e; font-weight:normal}
+  .art-slot.owned .art-inc b{color:#b8e070}
+  .art-up{
+    width:100%; margin-top:3px; padding:4px 3px; cursor:pointer; font-family:inherit;
+    font-size:10px; letter-spacing:.03em; white-space:nowrap; border-radius:3px; transition:.15s;
+    background:linear-gradient(#2b1f10,#170f07); color:#6f6149;
+    border:1px solid rgba(190,150,80,.25);
+  }
+  .art-up .icx{width:1em; height:1em; vertical-align:-.15em}
+  .art-slot.can .art-up{
+    color:#ffe9b0; border-color:rgba(200,162,74,.85);
+    background:linear-gradient(#5c4318,#33240c); box-shadow:0 0 10px rgba(200,162,74,.2);
+  }
+  .art-slot.can .art-up:hover{background:linear-gradient(#7a5a1e,#4a3212); box-shadow:0 0 14px rgba(200,162,74,.5)}
+  .art-slot.can{border-color:rgba(200,162,74,.9)}
+  .art-slot.lvmax .art-up{color:#8fbf5a; border-color:rgba(143,191,90,.45); cursor:default}
+  .art-up:disabled{cursor:not-allowed}
+  .art-up.nope{animation:nope .3s}
+  .art-slot.upped{animation:artUp .6s cubic-bezier(.2,1.6,.4,1)}
+  @keyframes artUp{0%{box-shadow:0 0 0 rgba(255,220,120,0)}35%{box-shadow:0 0 26px rgba(255,225,140,.95), inset 0 0 16px rgba(255,215,110,.4)}100%{box-shadow:0 0 12px rgba(200,162,74,.3)}}
   .art-slot .ord{
     position:absolute; top:2px; left:4px; font-size:9px; color:#1a1206; font-weight:bold;
     background:linear-gradient(#f0d070,#c8a24a); border-radius:8px; min-width:14px; height:14px;
@@ -283,6 +352,9 @@
   .rv-flavor{margin-top:6px; font-size:11.5px; font-style:italic; color:#a3906a; line-height:1.4; animation:nameIn .5s .2s backwards}
   .rv-gold{margin-top:10px; font-size:16px; color:#ffd970; text-shadow:0 0 12px rgba(255,210,90,.6); animation:nameIn .5s .26s backwards}
   .rv-gold .fb{color:#a8e060; font-size:13px; margin-left:8px; text-shadow:0 0 10px rgba(140,220,80,.6)}
+  .rv-lvl{margin-top:5px; font-size:11.5px; color:#c8b482; letter-spacing:.04em; animation:nameIn .5s .22s backwards}
+  .rv-lvl b{color:#ffd970}
+  .rv-lvl .lv{color:#b8e070; font-weight:bold}
   .rv-chain{margin-top:5px; font-size:10.5px; letter-spacing:.24em; color:#8f7c5c; text-transform:uppercase; animation:nameIn .5s .3s backwards}
 
   /* летящая иконка (reveal → слот) */
@@ -300,6 +372,7 @@
     animation:floatUp 1.05s ease-out forwards;
   }
   .floater.bonus{color:#b8f070; font-size:14px; text-shadow:0 0 10px rgba(150,240,80,.8), 0 2px 4px #000}
+  .floater.drip{color:#9ad060; font-size:12px; opacity:.9; text-shadow:0 0 8px rgba(140,220,80,.55), 0 2px 4px #000}
   @keyframes floatUp{from{opacity:1; margin-top:0}to{opacity:0; margin-top:-52px}}
 
   /* ================= ВСПЫШКИ ЭКРАНА ================= */
@@ -399,6 +472,8 @@
     #chainWrap{min-width:110px}
     #chainText{font-size:9px; letter-spacing:.12em}
     #speedBox{display:none}
+    #shieldBox{display:none}
+    #artGrid{grid-template-columns:repeat(2,1fr)}
   }
 </style>
 </head>
@@ -432,6 +507,7 @@
       🎯 <span id="chanceVal">30%</span><span id="chanceBonus" class="bonus"></span>
     </div>
     <div class="chip" id="speedBox" title="Скорость крюка: как быстро он летит и возвращается">⚡ <span id="speedVal">×1.0</span></div>
+    <div class="chip zero" id="incomeBox" title="Пассивный доход: золото капают прокачанные артефакты, пока они в текущей цепочке">💎 <span id="incomeVal">+0/с</span></div>
     <div class="chip" id="shieldBox" title="Обереги: спасают цепочку от одного провала">🧿 <span id="shieldVal">×0</span></div>
     <div id="chainWrap">
       <div id="chainText">ЦЕПОЧКА 0 / 12</div>
@@ -455,6 +531,10 @@
 
 <aside class="panel" id="panel-arts">
   <h2>Артефакты <span id="artCount">0/12</span></h2>
+  <div class="art-head">
+    <span class="ah-inc" id="artIncome" title="Сколько золота в секунду приносят предметы текущей цепочки">💎 +0/с</span>
+    <span class="ah-lv" id="artLevels" title="Суммарно куплено уровней прокачки">уровней: 0</span>
+  </div>
   <div id="artGrid"></div>
 </aside>
 
@@ -490,11 +570,24 @@
       <tr><td>⚡ Быстрый крюк</td><td>крюк от рождения летит медленно — каждый уровень ускоряет бросок и возврат</td></tr>
       <tr><td>💰 Алчность</td><td>+40% золота за уровень</td></tr>
     </table>
+    <h3>Прокачка артефактов</h3>
+    <p>Каждый предмет можно <b>улучшать отдельно</b> — до 8 уровней. Чем выше уровень,
+       тем ярче он <b>сияет на Пудже</b> (вокруг вещи крутятся золотые искры-уровни).</p>
+    <table class="mtable">
+      <tr><td>💎 Доход</td><td>+1.2 золота/сек за уровень — капает, <b>пока предмет в текущей цепочке</b></td></tr>
+      <tr><td>💰 Находка</td><td>+20% золота за уровень — каждый раз, когда этот предмет выпадает из леса</td></tr>
+      <tr><td>🔒 Условие</td><td>полировать можно только то, что носишь: предмет должен лежать в цепочке</td></tr>
+      <tr><td>♾ Прочность</td><td>уровни <b>не сгорают</b> при обрыве цепочки — это постоянная прокачка</td></tr>
+    </table>
+    <p>«Алчность» из лавки умножает и пассивный доход, и бонус находки.</p>
     <h3>Советы мясника</h3>
     <ul>
       <li>Золото падает только с артефактом: чем глубже цепочка, тем больше золота.</li>
       <li>Сначала вложись в «Быстрый крюк» — меньше ждёшь, больше бросаешь.</li>
       <li>«Удача» до 80% и «Алчность» до ×3.4 превращают лес в личную копилку.</li>
+      <li>Держи цепочку подлиннее и качай предметы прямо в ней: пассивный доход капает
+          только пока вещь надета, зато уровни остаются навсегда.</li>
+      <li>Прокачанный предмет дороже выпадает — вложился один раз, получаешь каждую находку.</li>
     </ul>
     <div class="mbtns"><button class="mbtn primary" id="mRulesClose">Всё понятно!</button></div>
   </div>
@@ -640,6 +733,45 @@
   };
   var MAX_SHIELDS = 3;
 
+  /* ---------- прокачка отдельных артефактов ----------
+     Каждый артефакт качается ОТДЕЛЬНО и навсегда: уровни переживают обрыв цепочки.
+     Уровень даёт два эффекта:
+       1) пассивный доход — золото/сек, пока предмет лежит в ТЕКУЩЕЙ цепочке;
+       2) надбавку к золоту в момент, когда этот предмет снова выпадает из леса.
+     Полировать можно только то, что носишь сейчас (предмет из текущей цепочки). */
+  var MAX_ART_LV    = 8;     // максимум уровней на артефакт
+  var ART_LV_INCOME = 1.2;   // золота в секунду за уровень, пока артефакт в цепочке
+  var ART_LV_FIND   = 0.20;  // +20% к золоту за находку этого предмета за уровень
+  // шаг стоимости сделан круче (v4.1): каждый следующий уровень заметно дороже
+  function artUpCost(lv)      { return Math.round(160 * Math.pow(2.1, lv)); }
+  function artLvOf(s, id)     { return (s.artLv && s.artLv[id]) | 0; }
+  function artIncomeOf(s, id) { return ART_LV_INCOME * artLvOf(s, id) * goldMultOf(s); }
+  function artFindMult(s, id) { return 1 + ART_LV_FIND * artLvOf(s, id); }
+  function artIncomePerSec(s) {
+    var sum = 0;
+    for (var i = 0; i < s.chainIds.length; i++) sum += artIncomeOf(s, s.chainIds[i]);
+    return sum;
+  }
+  function artTotalLevels(s) {
+    var sum = 0;
+    for (var i = 0; i < ARTIFACTS.length; i++) sum += artLvOf(s, ARTIFACTS[i].id);
+    return sum;
+  }
+  function artOwnedInChain(s, id) { return s.chainIds.indexOf(id) !== -1; }
+  function artMaxed(s, id)      { return artLvOf(s, id) >= MAX_ART_LV; }
+  function canBuyArt(s, id) {
+    return artOwnedInChain(s, id) && !artMaxed(s, id) &&
+           s.gold >= artUpCost(artLvOf(s, id));
+  }
+  function buyArtUpgrade(s, id) {
+    if (!canBuyArt(s, id)) return false;
+    var c = artUpCost(artLvOf(s, id));
+    s.gold -= c;
+    s.artLv[id] = artLvOf(s, id) + 1;
+    s.stats.artUpgrades++;
+    return true;
+  }
+
   /* ---------- формулы ---------- */
   function upgCost(key, level) {
     var u = UPGRADES[key];
@@ -654,9 +786,12 @@
   // множитель времени полёта крюка (меньше = быстрее). Уровень 0 — медленный крюк.
   function hookTimeMult(s) { return Math.pow(0.87, s.up.speed); }
   function hookSpeedDisp(s) { return 1 / hookTimeMult(s); }
-  function successGold(s, chainAfter) {
+  function successGold(s, chainAfter, artId) {
     // chainAfter — длина цепочки ПОСЛЕ находки (1..12)
-    return Math.round((25 + 12 * (chainAfter - 1)) * goldMultOf(s));
+    // artId — если передан, золото умножается на бонус прокачки ЭТОГО предмета
+    var g = (25 + 12 * (chainAfter - 1)) * goldMultOf(s);
+    if (artId) g *= artFindMult(s, artId);
+    return Math.round(g);
   }
   function firstBonusOf(s) { return Math.round(FIRST_BONUS * goldMultOf(s)); }
 
@@ -669,8 +804,10 @@
       up: { luck: 0, speed: 0, gold: 0 },
       stats: {
         clicks: 0, goldEarned: 0, artifacts: 0, bonuses: 0,
-        breaks: 0, shieldsUsed: 0, best: 0, wins: 0, playMs: 0
+        breaks: 0, shieldsUsed: 0, best: 0, wins: 0, playMs: 0,
+        passiveGold: 0, artUpgrades: 0
       },
+      artLv: {},               // уровни прокачки артефактов (персистентно)
       soundOn: true,
       // ТОЛЬКО в памяти: какие предметы уже давали бонус «первый раз за заход».
       // Не сохраняется — перезапуск страницы = новый заход.
@@ -696,7 +833,10 @@
       }
       var art = pool[Math.floor(rnd() * pool.length) % pool.length];
       s.chainIds.push(art.id);
-      var g = successGold(s, s.chainIds.length);
+      var artLv = artLvOf(s, art.id);              // уровень предмета (персистентный)
+      var gBase = successGold(s, s.chainIds.length);       // без бонуса прокачки
+      var g = successGold(s, s.chainIds.length, art.id);   // с бонусом прокачки
+      var lvlBonus = g - gBase;
       var isNew = !s.sessionFirst[art.id];
       var fb = 0;
       if (isNew) {
@@ -710,7 +850,8 @@
       if (s.chainIds.length > s.stats.best) s.stats.best = s.chainIds.length;
       var win = s.chainIds.length >= TOTAL_ARTS;
       if (win) s.stats.wins++;
-      return { type: 'artifact', art: art, gold: g, firstBonus: fb, isNew: isNew, chain: s.chainIds.length, win: win };
+      return { type: 'artifact', art: art, gold: g, baseGold: gBase, lvlBonus: lvlBonus, artLv: artLv,
+               firstBonus: fb, isNew: isNew, chain: s.chainIds.length, win: win };
     }
 
     // промах
@@ -777,6 +918,10 @@
     if (d.up) for (var k in s.up) if (typeof d.up[k] === 'number') s.up[k] = Math.max(0, Math.min(UPGRADES[k] ? UPGRADES[k].max : 0, d.up[k] | 0));
     if (d.stats) for (var k2 in s.stats) if (typeof d.stats[k2] === 'number') s.stats[k2] = d.stats[k2];
     if (typeof d.soundOn === 'boolean') s.soundOn = d.soundOn;
+    if (d.artLv) for (var ai = 0; ai < ARTIFACTS.length; ai++) {
+      var aid = ARTIFACTS[ai].id;
+      if (typeof d.artLv[aid] === 'number') s.artLv[aid] = Math.max(0, Math.min(MAX_ART_LV, d.artLv[aid] | 0));
+    }
     // sessionFirst всегда остаётся пустым при загрузке — новый заход
     return s;
   }
@@ -825,6 +970,11 @@
     createState: createState, rollThrow: rollThrow,
     canBuyUpgrade: canBuyUpgrade, buyUpgrade: buyUpgrade,
     canBuyShield: canBuyShield, buyShield: buyShield,
+    MAX_ART_LV: MAX_ART_LV, ART_LV_INCOME: ART_LV_INCOME, ART_LV_FIND: ART_LV_FIND,
+    artUpCost: artUpCost, artLvOf: artLvOf, artIncomeOf: artIncomeOf,
+    artFindMult: artFindMult, artIncomePerSec: artIncomePerSec, artTotalLevels: artTotalLevels,
+    artOwnedInChain: artOwnedInChain, artMaxed: artMaxed,
+    canBuyArt: canBuyArt, buyArtUpgrade: buyArtUpgrade,
     newGamePlus: newGamePlus,
     serialize: serialize, deserialize: deserialize, save: save, load: load, clearSave: clearSave,
     rulesSeen: rulesSeen, markRulesSeen: markRulesSeen,
@@ -1842,7 +1992,18 @@ canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', function (e) { tapInfo = null; endPointer(e); });
 canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
+var camOverride = null;   // ОТЛАДКА/ТЕСТЫ: {pos:[x,y,z], target:[x,y,z], fov} — фиксирует камеру
 function updateCam(dt) {
+  if (camOverride) {
+    camera.position.set(camOverride.pos[0], camOverride.pos[1], camOverride.pos[2]);
+    _camTarget.set(camOverride.target[0], camOverride.target[1], camOverride.target[2]);
+    camera.lookAt(_camTarget);
+    if (camOverride.fov && camera.fov !== camOverride.fov) {
+      camera.fov = camOverride.fov;
+      camera.updateProjectionMatrix();
+    }
+    return;
+  }
   var bx = CAM_BASE.x + Math.sin(t * 0.21) * 0.14 + Math.sin(t * 0.09) * 0.07;
   var by = CAM_BASE.y + Math.sin(t * 0.27) * 0.085;
   var bz = CAM_BASE.z + Math.cos(t * 0.17) * 0.06;
@@ -2267,6 +2428,672 @@ function updateGroundPulse(dt) {
   gp.material.opacity = (1 - k) * 0.7;
 }
 
+/* ============================================================
+   ЭКИПИРОВКА ПУДЖА — найденные предметы появляются НА НЁМ
+   --------------------------------------------------------
+   У каждого из 12 артефактов своя процедурная low-poly модель и
+   свой слот на теле: ботинки — на ступнях, наплечник — на плече,
+   клинок — на спине, скипетр — парит рядом и т.д.
+   · gearEquip(id)    — вещь «материализуется» (волна + искры + звук);
+   · gearUnequip(id)  — осыпается искрами (обрыв цепочки);
+   · gearSync()       — приводит экипировку в соответствие с цепочкой;
+   · gearSetLevel()   — уровни прокачки ВИДНО: вокруг вещи кружат
+                        искры по числу уровней, свечение растёт;
+   · updateGear(dt)   — своя анимация у каждой вещи (трепет крыльев,
+                        биение сердца, молнии, парящий скипетр…).
+   Всё строится из тех же хелперов (sph/box/cyl/cone/tor/put) —
+   внешних файлов нет. Модели создаются лениво и кэшируются.
+   ============================================================ */
+var GEAR = {};                 // id -> объект экипировки
+var gearList = [];             // все созданные вещи (порядок создания)
+var GEAR_MOTE_GEO = new THREE.TetrahedronGeometry(0.05);
+
+function gearMat(color, opt) {
+  var p = { color: color, flatShading: true, roughness: 0.75, metalness: 0.12 };
+  if (opt) for (var k in opt) p[k] = opt[k];
+  return new THREE.MeshStandardMaterial(p);
+}
+function gearGlow(color, intensity, opt) {
+  var p = {
+    color: color, emissive: new THREE.Color(color),
+    // ночная сцена с ACES-тонмаппингом: яркие эмиссивы выцветают в пастель,
+    // поэтому базовую силу приглушаем — цвет остаётся насыщенным
+    emissiveIntensity: (intensity === undefined ? 1 : intensity) * 0.62,
+    flatShading: true, roughness: 0.3, metalness: 0.1
+  };
+  if (opt) for (var k in opt) p[k] = opt[k];
+  return new THREE.MeshStandardMaterial(p);
+}
+var TEX_GLOW_WHITE = glowTexture('rgba(255,255,255,0.95)', 'rgba(255,255,255,0.32)');
+function gearAura(color, size) {
+  var sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: TEX_GLOW_WHITE, color: new THREE.Color(color), transparent: true,
+    opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false
+  }));
+  sp.scale.set(size, size, 1);
+  return sp;
+}
+function gearSprite(color, size, map) {
+  var sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: map || TEX_GLOW_WHITE, color: new THREE.Color(color), transparent: true,
+    opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false
+  }));
+  sp.scale.set(size, size, 1);
+  return sp;
+}
+
+/* ---------- слоты: куда вешать и чем строить ---------- */
+/* pos — точка НА поверхности тела (вещь не должна уходить внутрь),
+   scale — вещь крупнее относительно Пуджа (масштабируется вокруг точки слота) */
+var GEAR_DEFS = {
+  treads: { parent: 'group', pos: [0, 0, 0],             rot: [0, 0, 0],        scale: 1.00, moteR: 1.25, moteY: 0.70, aura: 1.7, build: buildTreads },
+  wand:   { parent: 'head',  pos: [-0.55, 0.22, -0.11],  rot: [-0.25, 0.4, 0.55], scale: 1.30, moteR: 0.34, moteY: 0.62, aura: 1.0, build: buildWand },
+  skadi:  { parent: 'head',  pos: [0, 0.27, 0.02],       rot: [0.10, 0, 0],      scale: 1.14, moteR: 0.68, moteY: 0.06, aura: 1.1, build: buildSkadi },
+  heart:  { parent: 'group', pos: [0, 3.62, 1.34],       rot: [-0.22, 0, 0],     scale: 1.45, moteR: 0.46, moteY: 0.00, aura: 1.2, build: buildHeart },
+  bkb:    { parent: 'group', pos: [1.24, 4.60, -0.06],   rot: [0, 0, -0.20],     scale: 1.15, moteR: 0.62, moteY: 0.16, aura: 1.4, build: buildBkb },
+  mkb:    { parent: 'armR',  pos: [0, -1.72, 0.07],      rot: [0.12, 0, 0],      scale: 1.12, moteR: 0.46, moteY: 0.04, aura: 1.0, build: buildMkb },
+  deso:   { parent: 'armL',  pos: [0, -1.74, 0.06],      rot: [0.12, 0, 0],      scale: 1.10, moteR: 0.48, moteY: 0.04, aura: 1.1, build: buildDeso },
+  blink:  { parent: 'group', pos: [1.48, 2.26, 0.84],    rot: [0, -0.62, -0.30], scale: 1.25, moteR: 0.44, moteY: -0.16, aura: 1.0, build: buildBlink },
+  mael:   { parent: 'group', pos: [-1.48, 2.24, 0.84],   rot: [0, 0.62, 0.34],   scale: 1.25, moteR: 0.52, moteY: 0.14, aura: 1.2, build: buildMael },
+  bfly:   { parent: 'group', pos: [0, 4.74, -1.34],      rot: [-0.30, 0, 0],     scale: 1.15, moteR: 1.15, moteY: 0.38, aura: 2.2, auraPos: [0, 0.35, -0.45], build: buildBfly },
+  rapier: { parent: 'group', pos: [0.10, 3.72, -1.56],   rot: [0, 0.06, 0.60],   scale: 1.15, moteR: 0.64, moteY: 0.22, aura: 1.6, build: buildRapier },
+  aghs:   { parent: 'group', pos: [-1.46, 5.66, 0.10],   rot: [0, 0, 0.14],      scale: 1.25, moteR: 0.50, moteY: 0.30, aura: 1.4, build: buildAghs }
+};
+
+/* ============================================================
+   МОДЕЛИ. Каждая возвращает { g, glow:[материалы], parts:{}, anim? }
+   ============================================================ */
+
+/* 🥾 Ботинки силы — кожаные сапоги с золотым рантом и тремя
+      камнями атрибутов (сила / ловкость / интеллект) */
+function buildTreads() {
+  var g = new THREE.Group(), glow = [];
+  var mLea = gearMat(0x7a4f28, { roughness: 0.88, metalness: 0.04 });
+  var mDk = gearMat(0x2e1e0e, { roughness: 0.95 });
+  var gems = [0xd02818, 0x28b040, 0x2060d0];
+  var gemGeo = sph(0.068, 6, 5);
+  [-1, 1].forEach(function (s) {
+    var b = new THREE.Group();
+    b.position.set(s * 0.85, 0, 0.08);
+    b.rotation.y = s * 0.22;
+    g.add(b);
+    put(b, box(0.74, 0.17, 1.24), mDk, 0, 0.085, 0.02);                            // подошва
+    put(b, scaled(mesh(sph(0.38, 8, 6), mLea, 0, 0.30, 0.02), 0.98, 0.86, 1.50));    // верх
+    put(b, scaled(mesh(sph(0.23, 7, 5), mDk, 0, 0.19, 0.52), 1.05, 0.7, 0.75));      // носок
+    put(b, cyl(0.300, 0.345, 0.66, 8), mLea, 0, 0.66, -0.02);                       // голенище
+    put(b, cyl(0.325, 0.325, 0.085, 8), MAT.gold, 0, 0.98, -0.02);                  // золотой рант
+    put(b, tor(0.345, 0.040, 5, 10), MAT.gold, 0, 0.40, -0.02, Math.PI / 2);         // обойма
+    put(b, box(0.11, 0.19, 0.05), MAT.metalDk, s * 0.28, 0.62, 0.24, 0, 0, s * 0.2);  // пряжка
+    for (var i = 0; i < 3; i++) {
+      var gm = gearGlow(gems[i], 1.2);
+      glow.push(gm);
+      put(b, gemGeo, gm, (i - 1) * 0.15, 0.70, 0.30);
+    }
+  });
+  return { g: g, glow: glow, parts: {} };
+}
+
+/* 🪄 Магический жезл — заткнут за ухо, кристалл копит заряды */
+function buildWand() {
+  var g = new THREE.Group(), glow = [];
+  put(g, cyl(0.026, 0.038, 0.62, 6), gearMat(0x4a3018, { roughness: 0.9 }), 0, 0.30, 0);
+  put(g, tor(0.046, 0.013, 4, 8), MAT.gold, 0, 0.09, 0, Math.PI / 2);
+  put(g, tor(0.040, 0.011, 4, 8), MAT.gold, 0, 0.50, 0, Math.PI / 2);
+  var tipM = gearGlow(0x7a2fd8, 1.45);
+  glow.push(tipM);
+  var crys = put(g, new THREE.OctahedronGeometry(0.092, 0), tipM, 0, 0.66, 0);
+  put(g, sph(0.036, 6, 5), gearGlow(0xb070ff, 1.0), 0, 0.66, 0);
+  var charges = [], cGeo = new THREE.TetrahedronGeometry(0.036);
+  for (var i = 0; i < 3; i++) {
+    var cm = gearGlow(0xb060ff, 1.3);
+    glow.push(cm);
+    charges.push(put(g, cGeo, cm, 0, 0.66, 0));
+  }
+  var halo = gearSprite(0xb080ff, 0.75);
+  halo.position.set(0, 0.66, 0);
+  g.add(halo);
+  return {
+    g: g, glow: glow, parts: { crys: crys, charges: charges, halo: halo },
+    anim: function (o, dt, tt) {
+      o.parts.crys.rotation.y += dt * 1.7;
+      o.parts.crys.rotation.x += dt * 0.9;
+      for (var i = 0; i < o.parts.charges.length; i++) {
+        var a = tt * 2.2 + i * (Math.PI * 2 / 3), c = o.parts.charges[i];
+        c.position.set(Math.cos(a) * 0.19, 0.66 + Math.sin(a * 1.7) * 0.07, Math.sin(a) * 0.19);
+        c.rotation.set(a * 2, a * 1.4, 0);
+      }
+      o.parts.halo.material.opacity = 0.22 + 0.14 * Math.sin(tt * 3.1);
+    }
+  };
+}
+
+/* ❄️ Око Скади — ледяной венец с самоцветом и морозной дымкой */
+function buildSkadi() {
+  var g = new THREE.Group(), glow = [];
+  var mIce = gearMat(0x9ad8ee, { roughness: 0.28, metalness: 0.45, transparent: true, opacity: 0.92 });
+  var ring = put(g, tor(0.50, 0.042, 5, 16), mIce, 0, 0, 0, Math.PI / 2);
+  ring.scale.z = 0.94;
+  put(g, tor(0.50, 0.020, 4, 16), MAT.metal, 0, 0.06, 0, Math.PI / 2);
+  var gemM = gearGlow(0x3f9fd8, 1.35);
+  glow.push(gemM);
+  var gem = put(g, new THREE.IcosahedronGeometry(0.095, 0), gemM, 0, 0.05, 0.50);
+  [-1, 1].forEach(function (s) {
+    put(g, cone(0.055, 0.26, 5), mIce, s * 0.40, 0.14, 0.26, -0.35, 0, s * 0.55);
+    put(g, cone(0.040, 0.18, 5), mIce, s * 0.51, 0.10, -0.04, 0, 0, s * 0.95);
+  });
+  put(g, box(0.22, 0.055, 0.05), MAT.metal, 0, -0.05, 0.47);
+  var mist = gearSprite(0xbfe8ff, 1.1, TEX_GLOW_GOLD);
+  mist.scale.set(1.1, 0.8, 1); mist.position.set(0, 0.02, 0.44);
+  g.add(mist);
+  return {
+    g: g, glow: glow, parts: { gem: gem, mist: mist },
+    anim: function (o, dt, tt) {
+      o.parts.gem.rotation.y += dt * 1.1;
+      o.parts.mist.material.opacity = 0.18 + 0.14 * Math.sin(tt * 2.1);
+      o.parts.mist.scale.set(1.1 + 0.10 * Math.sin(tt * 1.6), 0.8, 1);
+    }
+  };
+}
+
+/* 💚 Сердце Тарраска — амулет на груди, бьётся в такт Пуджу */
+function buildHeart() {
+  var g = new THREE.Group(), glow = [];
+  var mHeart = gearGlow(0x8e1220, 0.95, { roughness: 0.42, metalness: 0.05 });
+  glow.push(mHeart);
+  var h = new THREE.Group(); g.add(h);
+  put(h, sph(0.155, 8, 6), mHeart, -0.105, 0.085, 0);
+  put(h, sph(0.155, 8, 6), mHeart, 0.105, 0.085, 0);
+  put(h, cone(0.215, 0.40, 7), mHeart, 0, -0.135, 0, Math.PI);
+  put(h, scaled(mesh(sph(0.07, 6, 5), gearGlow(0xd03040, 0.55), 0, 0.05, 0.16), 1, 1.2, 0.5));
+  var cage = put(g, tor(0.30, 0.028, 5, 12), MAT.gold, 0, 0.02, 0.06, 0.42);
+  put(g, tor(0.055, 0.020, 4, 8), MAT.gold, 0, 0.30, -0.02, Math.PI / 2);
+  [-1, 1].forEach(function (s) {                                            // шнурок к шее
+    var pts = [new THREE.Vector3(s * 0.04, 0.28, -0.05),
+               new THREE.Vector3(s * 0.16, 0.62, -0.28),
+               new THREE.Vector3(s * 0.22, 0.95, -0.52)];
+    put(g, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 8, 0.016, 4, false), MAT.leatherDk);
+  });
+  return {
+    g: g, glow: glow, parts: { h: h, cage: cage },
+    anim: function (o, dt, tt) {
+      var ph = (tt * 1.4) % 1;                                              // два удара на цикл
+      var beat = ph < 0.15 ? 1 + 0.22 * Math.sin(ph / 0.15 * Math.PI)
+               : (ph < 0.36 ? 1 + 0.12 * Math.sin((ph - 0.21) / 0.15 * Math.PI) : 1);
+      o.parts.h.scale.setScalar(beat);
+      o.glow[0].emissiveIntensity = o.glowBase[0] * (0.72 + 1.5 * (beat - 1));
+      o.parts.cage.rotation.z += dt * 0.35;
+    }
+  };
+}
+
+/* 🛡️ Посох Чёрного Короля — чёрно-золотой наплечник с руной */
+function buildBkb() {
+  var g = new THREE.Group(), glow = [];
+  var mBlack = gearMat(0x1b1917, { roughness: 0.45, metalness: 0.58 });
+  var shell = put(g, new THREE.SphereGeometry(0.60, 10, 7, 0, Math.PI * 2, 0, Math.PI * 0.56), mBlack, 0, 0, 0);
+  shell.scale.set(1.04, 1.0, 1.0);
+  put(g, tor(0.60, 0.045, 5, 14), MAT.gold, 0, -0.04, 0, Math.PI / 2);
+  for (var i = 0; i < 5; i++) {                                             // гребень шипов
+    var a = -0.95 + i * 0.48;
+    put(g, cone(0.055, 0.28, 5), MAT.gold,
+        Math.sin(a) * 0.50, 0.24 + Math.cos(a) * 0.12, Math.cos(a) * 0.30,
+        Math.cos(a) * 0.55, 0, -Math.sin(a) * 0.75);
+  }
+  var runeM = gearGlow(0xff9a10, 1.4);
+  glow.push(runeM);
+  put(g, cyl(0.115, 0.115, 0.05, 6), runeM, 0.04, 0.14, 0.50, 1.25, 0, 0);
+  put(g, box(0.045, 0.20, 0.04), runeM, 0.04, 0.14, 0.545, 1.25, 0, 0);
+  var aura = gearSprite(0xffc860, 1.5);
+  aura.position.set(0, 0.08, 0.12);
+  g.add(aura);
+  return {
+    g: g, glow: glow, parts: { aura: aura },
+    anim: function (o, dt, tt) {
+      o.parts.aura.material.opacity = 0.14 + 0.13 * Math.abs(Math.sin(tt * 1.35));
+      o.parts.aura.scale.setScalar(1.5 + 0.20 * Math.sin(tt * 1.35));
+    }
+  };
+}
+
+/* 🐒 Посох Короля Обезьян — золотой наруч с мордой царя обезьян */
+function buildMkb() {
+  var g = new THREE.Group(), glow = [];
+  put(g, cyl(0.348, 0.388, 0.30, 8), MAT.gold, 0, 0.06, 0);
+  put(g, cyl(0.332, 0.348, 0.14, 8), MAT.gold, 0, 0.26, 0);
+  put(g, tor(0.368, 0.030, 4, 12), gearMat(0xb8862e, { metalness: 0.8, roughness: 0.25 }), 0, -0.11, 0, Math.PI / 2);
+  for (var i = 0; i < 3; i++) {                                             // шипы
+    var a = -0.60 + i * 0.60;
+    put(g, cone(0.045, 0.20, 5), MAT.gold,
+        Math.sin(a) * 0.37, 0.06, Math.cos(a) * 0.37,
+        Math.cos(a) * 1.35, 0, -Math.sin(a) * 1.35);
+  }
+  var face = new THREE.Group(); face.position.set(0, 0.12, 0.34); g.add(face);
+  put(face, scaled(mesh(sph(0.115, 8, 6), MAT.gold, 0, 0, 0), 1, 0.92, 0.72));
+  [-1, 1].forEach(function (s) { put(face, sph(0.045, 6, 5), MAT.gold, s * 0.115, 0.015, -0.012); });
+  put(face, sph(0.026, 5, 4), MAT.dark, -0.045, 0.022, 0.072);
+  put(face, sph(0.026, 5, 4), MAT.dark, 0.045, 0.022, 0.072);
+  put(face, box(0.075, 0.022, 0.03), MAT.dark, 0, -0.055, 0.072);
+  var eyeM = gearGlow(0xff4a2a, 1.7);
+  glow.push(eyeM);
+  put(g, sph(0.042, 6, 5), eyeM, 0, 0.24, 0.33);                            // алый самоцвет
+  return { g: g, glow: glow, parts: { face: face },
+    anim: function (o, dt, tt) { o.glow[0].emissiveIntensity = o.glowBase[0] * (0.85 + 0.35 * Math.sin(tt * 3.1)); } };
+}
+
+/* 🌑 Опустошитель — шипастая рукавица, сочащаяся порчей */
+function buildDeso() {
+  var g = new THREE.Group(), glow = [];
+  var mIron = gearMat(0x2a2226, { roughness: 0.55, metalness: 0.62 });
+  put(g, cyl(0.338, 0.378, 0.50, 8), mIron, 0, 0, 0);
+  put(g, cyl(0.302, 0.338, 0.16, 8), mIron, 0, 0.30, 0);
+  put(g, tor(0.368, 0.032, 4, 12), gearMat(0x6a2a24, { metalness: 0.5, roughness: 0.4 }), 0, -0.23, 0, Math.PI / 2);
+  for (var i = 0; i < 4; i++) {                                             // шипы
+    var a = -0.80 + i * 0.53;
+    put(g, cone(0.050, 0.26, 5), mIron,
+        Math.sin(a) * 0.35, -0.06 + (i % 2) * 0.17, Math.cos(a) * 0.35,
+        Math.cos(a) * 1.40, 0, -Math.sin(a) * 1.40);
+  }
+  var orbM = gearGlow(0xc8302a, 1.4);
+  glow.push(orbM);
+  var orb = put(g, new THREE.IcosahedronGeometry(0.10, 0), orbM, 0, 0.06, 0.36);
+  put(g, scaled(mesh(sph(0.14, 7, 5), gearGlow(0x8a120e, 0.9, { transparent: true, opacity: 0.35 }), 0, 0.06, 0.36), 1, 1, 0.7));
+  var smoke = gearSprite(0xd0402a, 1.1);
+  smoke.position.set(0, 0.06, 0.34);
+  g.add(smoke);
+  return {
+    g: g, glow: glow, parts: { orb: orb, smoke: smoke },
+    anim: function (o, dt, tt) {
+      o.parts.orb.rotation.y += dt * 1.4;
+      o.parts.orb.rotation.x += dt * 0.8;
+      o.parts.smoke.material.opacity = 0.14 + 0.13 * Math.sin(tt * 2.4);
+      o.parts.smoke.scale.setScalar(1.1 + 0.16 * Math.sin(tt * 1.9));
+    }
+  };
+}
+
+/* 🗡️ Кинжал скачка — в ножнах на поясе, дрожит голубым маревом */
+function buildBlink() {
+  var g = new THREE.Group(), glow = [];
+  var mSh = gearMat(0x22303a, { roughness: 0.7, metalness: 0.28 });
+  put(g, box(0.155, 0.62, 0.085), mSh, 0, -0.28, 0, 0, 0, 0.05);
+  put(g, box(0.178, 0.075, 0.10), MAT.metal, 0, 0.02, 0);
+  put(g, cone(0.075, 0.16, 4), mSh, 0.016, -0.65, 0, Math.PI, 0, 0.05);
+  put(g, tor(0.078, 0.020, 4, 10), MAT.metalDk, 0, 0.30, 0, 0, 0, 0.3);            // кольцо ножен
+  put(g, cyl(0.036, 0.040, 0.22, 6), gearMat(0x1a2228, { roughness: 0.9 }), 0, 0.17, 0);
+  put(g, box(0.21, 0.045, 0.06), MAT.metal, 0, 0.06, 0);                           // гарда
+  put(g, sph(0.052, 6, 5), MAT.metal, 0, 0.29, 0);                                  // навершие
+  var bladeM = gearGlow(0x6ad0e8, 1.4);
+  glow.push(bladeM);
+  put(g, box(0.055, 0.30, 0.014), bladeM, 0.006, -0.10, 0.053, 0, 0, 0.05);         // лезвие наружу
+  var shim = gearSprite(0x9ae8ff, 1.0);
+  shim.scale.set(0.85, 1.35, 1); shim.position.set(0, -0.16, 0.06);
+  g.add(shim);
+  return {
+    g: g, glow: glow, parts: { shim: shim },
+    anim: function (o, dt, tt) {
+      var flick = Math.max(0, Math.sin(tt * 7.3) * Math.sin(tt * 2.1));
+      o.parts.shim.material.opacity = 0.16 + 0.38 * flick;
+      o.parts.shim.position.x = 0.03 * Math.sin(tt * 11);
+    }
+  };
+}
+
+/* ⚡ Водоворот — боевой молот на поясе, по нему бегают молнии */
+function buildMael() {
+  var g = new THREE.Group(), glow = [];
+  put(g, cyl(0.042, 0.052, 0.78, 6), gearMat(0x4a3018, { roughness: 0.92 }), 0, -0.30, 0);
+  put(g, tor(0.056, 0.016, 4, 8), MAT.metalDk, 0, -0.02, 0, Math.PI / 2);
+  var head = new THREE.Group(); head.position.set(0, 0.14, 0); g.add(head);
+  put(head, box(0.30, 0.25, 0.25), gearMat(0xaeb6bc, { metalness: 0.85, roughness: 0.32 }), 0, 0, 0);
+  put(head, box(0.345, 0.14, 0.16), MAT.metalDk, 0, 0, 0);
+  [-1, 1].forEach(function (s) { put(head, cone(0.06, 0.19, 5), MAT.metal, s * 0.23, 0, 0, 0, 0, -s * Math.PI / 2); });
+  put(head, tor(0.148, 0.022, 4, 10), MAT.gold, 0, 0, 0, 0, Math.PI / 2);
+  var coreM = gearGlow(0x3f74e0, 2.0);
+  glow.push(coreM);
+  var core = put(head, new THREE.IcosahedronGeometry(0.075, 0), coreM, 0, 0, 0.15);
+  var arcs = [], arcM = new THREE.MeshBasicMaterial({
+    color: 0xcfe8ff, transparent: true, opacity: 0.92, blending: THREE.AdditiveBlending,
+    depthWrite: false, toneMapped: false
+  });
+  var arcGeo = box(0.022, 0.22, 0.022);
+  for (var i = 0; i < 3; i++) { var seg = put(head, arcGeo, arcM, 0, 0, 0); seg.visible = false; arcs.push(seg); }
+  return {
+    g: g, glow: glow, parts: { head: head, arcs: arcs, core: core },
+    anim: function (o, dt, tt) {
+      o.parts.head.rotation.y = Math.sin(tt * 0.7) * 0.12;
+      o.parts.core.rotation.y += dt * 2.2;
+      var flash = Math.pow(Math.max(0, Math.sin(tt * 5.5)), 14) + Math.pow(Math.max(0, Math.sin(tt * 2.3 + 1.7)), 22);
+      o.glow[0].emissiveIntensity = o.glowBase[0] * (0.8 + 1.7 * flash);
+      for (var i = 0; i < o.parts.arcs.length; i++) {
+        var a = o.parts.arcs[i];
+        var on = Math.sin(tt * (13 + i * 7) + i * 2.4) > 0.88;
+        a.visible = on;
+        if (on) {
+          var ang = tt * (9 + i * 3) + i * 2.1;
+          a.position.set(Math.cos(ang) * 0.21, Math.sin(ang * 1.3) * 0.17, Math.sin(ang) * 0.21);
+          a.rotation.set(ang, ang * 0.7, ang * 1.4);
+          a.scale.set(1, 0.6 + Math.random() * 1.2, 1);
+        }
+      }
+    }
+  };
+}
+
+/* 🦋 Бабочка — пара полупрозрачных крыльев за спиной, трепещут */
+function wingShape(len, w) {
+  var sh = new THREE.Shape();
+  sh.moveTo(0, 0);
+  sh.bezierCurveTo(len * 0.16, w * 0.80, len * 0.70, w * 1.02, len, w * 0.32);
+  sh.bezierCurveTo(len * 0.94, w * 0.04, len * 0.58, -w * 0.10, len * 0.34, -w * 0.46);
+  sh.bezierCurveTo(len * 0.18, -w * 0.30, len * 0.06, -w * 0.13, 0, 0);
+  return sh;
+}
+function buildBfly() {
+  var g = new THREE.Group(), glow = [];
+  var wingMat = new THREE.MeshStandardMaterial({
+    color: 0x58c22a, emissive: new THREE.Color(0x46a81c), emissiveIntensity: 0.72,
+    transparent: true, opacity: 0.76, side: THREE.DoubleSide, flatShading: true,
+    roughness: 0.4, metalness: 0.05, depthWrite: false
+  });
+  glow.push(wingMat);
+  var veinMat = new THREE.MeshBasicMaterial({
+    color: 0x6ad040, transparent: true, opacity: 0.26, blending: THREE.AdditiveBlending,
+    depthWrite: false, toneMapped: false
+  });
+  var geoUp = new THREE.ShapeGeometry(wingShape(1.32, 0.78));
+  var geoLo = new THREE.ShapeGeometry(wingShape(0.80, 0.56));
+  var veins = [];
+  var wings = [];
+  [-1, 1].forEach(function (s) {
+    var w = new THREE.Group(); g.add(w); wings.push(w);
+    var up = put(w, geoUp, wingMat, 0, 0.05, 0);
+    up.scale.x = s; up.rotation.z = s > 0 ? 0.55 : -0.55;
+    var lo = put(w, geoLo, wingMat, 0, -0.04, 0.012);
+    lo.scale.x = s; lo.rotation.z = s > 0 ? -0.35 : 0.35;
+    for (var v = 0; v < 3; v++) {                                            // жилки крыла
+      if (v > 1) return;
+      veins.push(put(w, box(0.011, 1.05 - v * 0.24, 0.006), veinMat,
+        s * (0.38 + v * 0.28), 0.30 - v * 0.14, 0.02, 0, 0, s * (0.75 - v * 0.26)));
+    }
+  });
+  put(g, cyl(0.055, 0.045, 0.36, 6), gearMat(0x3a5a26, { roughness: 0.8 }), 0, -0.02, 0);  // тельце
+  put(g, sph(0.072, 6, 5), gearMat(0x2e4a22), 0, 0.19, 0);
+  [-1, 1].forEach(function (s) { put(g, cyl(0.008, 0.012, 0.18, 4), gearMat(0x2e4a22), s * 0.05, 0.30, 0.02, 0.3, 0, s * 0.4); });
+  return {
+    g: g, glow: glow, parts: { wings: wings, veins: veins },
+    anim: function (o, dt, tt) {
+      var fl = Math.sin(tt * 5.2);
+      o.parts.wings[0].rotation.y = -0.28 - fl * 0.44;
+      o.parts.wings[1].rotation.y = 0.28 + fl * 0.44;
+      o.glow[0].emissiveIntensity = o.glowBase[0] * (0.85 + 0.45 * Math.abs(fl));
+      o.glow[0].opacity = 0.66 + 0.16 * Math.abs(fl);
+    }
+  };
+}
+
+/* ⚔️ Божественная рапира — сияющий клинок за спиной наискосок */
+function buildRapier() {
+  var g = new THREE.Group(), glow = [];
+  var mSteel = gearMat(0xf2e8cc, { roughness: 0.22, metalness: 0.85 });
+  var bladeM = gearGlow(0xfff0b8, 1.3, { metalness: 0.6, roughness: 0.2 });
+  glow.push(bladeM);
+  put(g, box(0.105, 1.90, 0.028), mSteel, 0, 0.60, 0);                              // клинок
+  put(g, box(0.036, 1.78, 0.044), bladeM, 0, 0.60, 0);                              // светящийся дол
+  put(g, cone(0.076, 0.36, 4), mSteel, 0, 1.71, 0);                                 // остриё
+  put(g, cone(0.030, 0.30, 4), bladeM, 0, 1.69, 0);
+  var guard = put(g, tor(0.20, 0.030, 5, 14), MAT.gold, 0, -0.44, 0.02, 0.15);
+  guard.scale.set(1, 0.74, 1);
+  [-1, 1].forEach(function (s) { put(g, tor(0.115, 0.022, 4, 10), MAT.gold, s * 0.13, -0.50, 0.05, 0.3, s * 0.5, 0.2); });
+  put(g, cyl(0.042, 0.048, 0.34, 6), gearMat(0x3a2413, { roughness: 0.95 }), 0, -0.60, 0);
+  for (var i = 0; i < 3; i++) put(g, tor(0.053, 0.010, 4, 8), MAT.gold, 0, -0.50 - i * 0.09, 0, Math.PI / 2);
+  var pommel = put(g, new THREE.IcosahedronGeometry(0.078, 0), bladeM, 0, -0.80, 0);
+  [-1, 1].forEach(function (s) {                                            // ремни к спине
+    var pts = [new THREE.Vector3(s * 0.07, -0.30, -0.02),
+               new THREE.Vector3(s * 0.12, -0.26, 0.16),
+               new THREE.Vector3(s * 0.14, -0.20, 0.30)];
+    put(g, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 6, 0.022, 4, false), MAT.leatherDk);
+  });
+  var shine = gearSprite(0xfff4c8, 1.0);
+  shine.scale.set(0.85, 2.9, 1); shine.position.set(0, 0.55, 0);
+  g.add(shine);
+  return {
+    g: g, glow: glow, parts: { pommel: pommel, shine: shine },
+    anim: function (o, dt, tt) {
+      o.parts.pommel.rotation.y += dt * 1.3;
+      o.parts.shine.material.opacity = 0.24 + 0.16 * Math.sin(tt * 1.9);
+      o.glow[0].emissiveIntensity = o.glowBase[0] * (0.9 + 0.24 * Math.sin(tt * 2.3));
+    }
+  };
+}
+
+/* 🔮 Скипетр Аганима — парит над плечом, венец коллекции */
+function buildAghs() {
+  var g = new THREE.Group(), glow = [];
+  put(g, cyl(0.030, 0.042, 0.56, 6), MAT.gold, 0, -0.10, 0);
+  put(g, tor(0.052, 0.014, 4, 10), MAT.gold, 0, 0.16, 0, Math.PI / 2);
+  for (var i = 0; i < 3; i++) {                                                     // зубцы
+    var a = i * (Math.PI * 2 / 3);
+    put(g, cone(0.026, 0.26, 4), MAT.gold, Math.sin(a) * 0.085, 0.30, Math.cos(a) * 0.085,
+        Math.cos(a) * 0.42, 0, -Math.sin(a) * 0.42);
+  }
+  var crysM = gearGlow(0x0fae6a, 1.4, { transparent: true, opacity: 0.94, roughness: 0.18, metalness: 0.25 });
+  glow.push(crysM);
+  var crys = put(g, new THREE.IcosahedronGeometry(0.135, 0), crysM, 0, 0.40, 0);
+  put(g, new THREE.IcosahedronGeometry(0.062, 0), gearGlow(0x70e8b0, 0.95), 0, 0.40, 0);
+  var halo = gearSprite(0x9affc8, 1.25, TEX_GLOW_GREEN);
+  halo.position.set(0, 0.40, 0);
+  g.add(halo);
+  return {
+    g: g, glow: glow, parts: { crys: crys, halo: halo },
+    anim: function (o, dt, tt) {
+      o.g.position.y = o.def.pos[1] + Math.sin(tt * 1.5) * 0.09;
+      o.g.rotation.y = tt * 0.7;
+      o.g.rotation.z = o.def.rot[2] + Math.sin(tt * 1.1) * 0.07;
+      o.parts.crys.rotation.y -= dt * 2.0;
+      o.parts.crys.rotation.x += dt * 0.7;
+      o.parts.halo.material.opacity = 0.32 + 0.18 * Math.sin(tt * 2.6);
+      o.parts.halo.scale.setScalar(1.25 + 0.16 * Math.sin(tt * 2.6));
+    }
+  };
+}
+
+/* ============================================================
+   СОЗДАНИЕ / НАДЕВАНИЕ / СНЯТИЕ / УРОВНИ
+   ============================================================ */
+function gearCreate(id) {
+  if (GEAR[id]) return GEAR[id];
+  var def = GEAR_DEFS[id];
+  var art = L.ART_BY_ID[id];
+  if (!def || !art) return null;
+  var built = def.build(art) || {};
+  var g = built.g;
+  g.name = 'gear_' + id;
+
+  var o = {
+    id: id, def: def, art: art, g: g,
+    glow: built.glow || [],
+    anim: built.anim || null,
+    parts: built.parts || {},
+    aura: gearAura(art.color, def.aura || 1),
+    motes: [],
+    lvl: -1, state: 'hidden', k: 0, flash: 0,
+    baseScale: def.scale || 1,
+    auraBase: def.aura || 1, auraScaleK: 1, auraOpacity: 0.12
+  };
+  o.glowBase = [];
+  for (var i = 0; i < o.glow.length; i++) {
+    o.glowBase.push(o.glow[i].emissiveIntensity === undefined ? 1 : o.glow[i].emissiveIntensity);
+  }
+  o.glowBaseDefault = o.glowBase.slice();
+
+  g.add(o.aura);
+  if (def.auraPos) o.aura.position.set(def.auraPos[0], def.auraPos[1], def.auraPos[2]);
+  var moteMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff, emissive: new THREE.Color(art.color),
+    emissiveIntensity: 1.05, flatShading: true, roughness: 0.3
+  });
+  for (var m = 0; m < L.MAX_ART_LV; m++) {
+    var mo = mesh(GEAR_MOTE_GEO, moteMat);
+    mo.visible = false;
+    g.add(mo);
+    o.motes.push(mo);
+  }
+  o.moteMat = moteMat;
+  g.visible = false;
+  g.scale.setScalar(0.001 * o.baseScale);
+  GEAR[id] = o;
+  gearList.push(o);
+  return o;
+}
+
+function gearParentOf(def) {
+  if (def.parent === 'head') return R.head;
+  if (def.parent === 'armR') return R.armR;
+  if (def.parent === 'armL') return R.armL;
+  return pudge.group;
+}
+
+/* ---------- надеть ---------- */
+function gearEquip(id, silent) {
+  var o = gearCreate(id);
+  if (!o) return null;
+  var par = gearParentOf(o.def);
+  if (o.g.parent !== par) {
+    if (o.g.parent) o.g.parent.remove(o.g);
+    par.add(o.g);
+  }
+  o.g.position.set(o.def.pos[0], o.def.pos[1], o.def.pos[2]);
+  o.g.rotation.set(o.def.rot[0], o.def.rot[1], o.def.rot[2]);
+  o.g.visible = true;
+  o.state = 'in'; o.k = 0; o.flash = 0;
+  o.g.scale.setScalar(0.001 * o.baseScale);
+  gearSetLevel(id, L.artLvOf(S, id));
+  if (!silent) {
+    var v = new THREE.Vector3();
+    o.g.getWorldPosition(v);
+    spawnWave(v, o.art.color, 2.4 + (o.def.aura || 1), 0.5);
+    burst(v, 9, sparkMat(o.art.color), 2.4, 0.42, 3.2);
+    burst(v, 4, MAT.gold, 1.9, 0.34, 4);
+    o.flash = 1;
+    if (typeof sndEquip === 'function') sndEquip();
+  }
+  return o;
+}
+
+/* ---------- снять ---------- */
+function gearUnequip(id, shatter) {
+  var o = GEAR[id];
+  if (!o || o.state === 'hidden') return;
+  if (shatter) {
+    var v = new THREE.Vector3();
+    o.g.getWorldPosition(v);
+    burst(v, 8, sparkMat(o.art.color), 2.6, 0.42, 5);
+    spawnWave(v, o.art.color, 2.0, 0.36);
+    if (typeof sndUnequip === 'function') sndUnequip();
+  }
+  o.state = 'out'; o.k = 0;
+}
+function gearUnequipAll(shatter) {
+  for (var i = 0; i < gearList.length; i++) {
+    if (gearList[i].state !== 'hidden') gearUnequip(gearList[i].id, shatter);
+  }
+}
+
+/* ---------- привести экипировку в соответствие с цепочкой ---------- */
+function gearSync(silent) {
+  for (var i = 0; i < L.ARTIFACTS.length; i++) {
+    var id = L.ARTIFACTS[i].id;
+    var owned = S.chainIds.indexOf(id) !== -1;
+    var o = GEAR[id];
+    if (owned) {
+      if (!o || o.state === 'hidden' || o.state === 'out') gearEquip(id, silent);
+      else gearSetLevel(id, L.artLvOf(S, id));
+    } else if (o && o.state !== 'hidden') {
+      gearUnequip(id, !silent);
+    }
+  }
+}
+
+/* ---------- уровни прокачки видны на вещи ---------- */
+function gearSetLevel(id, lv) {
+  var o = GEAR[id] || gearCreate(id);
+  if (!o) return;
+  lv = Math.max(0, Math.min(L.MAX_ART_LV, lv | 0));
+  o.lvl = lv;
+  var k = lv / L.MAX_ART_LV;
+  for (var i = 0; i < o.motes.length; i++) o.motes[i].visible = i < lv;
+  for (var j = 0; j < o.glow.length; j++) {
+    o.glowBase[j] = (o.glowBaseDefault[j] || 1) * (0.62 + 0.62 * k);
+    // для вещей без собственной анимации применяем сразу (анимируемые
+    // пересчитывают emissiveIntensity каждый кадр от o.glowBase[j])
+    if (o.glow[j].emissiveIntensity !== undefined) o.glow[j].emissiveIntensity = o.glowBase[j];
+  }
+  o.moteMat.emissiveIntensity = (1.05 + 0.55 * k) * 0.8;
+  o.auraScaleK = 0.70 + 0.44 * k;
+  // ореол держим слабым: он должен обводить вещь, а не выбеливать её
+  o.auraOpacity = lv > 0 ? 0.085 + 0.026 * lv : 0.05;
+}
+
+/* покупка уровня: вспышка и золотые искры прямо на предмете */
+function gearLevelUp(id, lv) {
+  gearSetLevel(id, lv);
+  var o = GEAR[id];
+  if (!o || o.state === 'hidden') return;
+  var v = new THREE.Vector3();
+  o.g.getWorldPosition(v);
+  o.flash = 1;
+  burst(v, 10, MAT.gold, 2.2, 0.36, 3.4);
+  spawnWave(v, 0xffe9a8, 2.0 + (o.def.aura || 1) * 0.6, 0.42);
+  if (lv >= L.MAX_ART_LV) { burst(v, 12, sparkMat(o.art.color), 3.0, 0.5, 2.4); shake(0.10); }
+}
+
+/* ---------- покадровая анимация всей экипировки ---------- */
+function updateGear(dt) {
+  for (var i = 0; i < gearList.length; i++) {
+    var o = gearList[i];
+    if (o.state === 'hidden') continue;
+
+    /* материализация / рассыпание */
+    if (o.state === 'in') {
+      o.k += dt / 0.42;
+      var k = Math.min(1, o.k);
+      var e = 1 - Math.pow(1 - k, 3);
+      o.g.scale.setScalar(Math.max(0.001, o.baseScale * e * (1 + 0.34 * Math.sin(k * Math.PI))));
+      if (k >= 1) { o.state = 'shown'; o.g.scale.setScalar(o.baseScale); }
+    } else if (o.state === 'out') {
+      o.k += dt / 0.30;
+      var k2 = Math.min(1, o.k);
+      var bump = k2 < 0.22 ? 1 + 0.24 * Math.sin(k2 / 0.22 * Math.PI) : 1;
+      var shrink = k2 < 0.22 ? 1 : 1 - (k2 - 0.22) / 0.78;
+      o.g.scale.setScalar(Math.max(0.001, o.baseScale * bump * shrink));
+      if (k2 >= 1) { o.state = 'hidden'; o.g.visible = false; o.g.scale.setScalar(0.001 * o.baseScale); }
+    }
+
+    /* аура: дышит + вспыхивает при улучшении */
+    if (o.flash > 0) o.flash = Math.max(0, o.flash - dt * 2.4);
+    var pulse = 1 + 0.07 * Math.sin(t * 2.2 + i * 1.3) + o.flash * 0.85;
+    o.aura.scale.setScalar(o.auraBase * o.auraScaleK * pulse);
+    o.aura.material.opacity = o.auraOpacity * (0.82 + 0.18 * Math.sin(t * 2.6 + i)) + o.flash * 0.45;
+
+    /* искры-уровни кружат вокруг вещи */
+    var rr = o.def.moteR || 0.4, n = Math.max(1, o.lvl || 1);
+    for (var m = 0; m < o.motes.length; m++) {
+      if (!o.motes[m].visible) continue;
+      var a = t * 1.5 + m * (Math.PI * 2 / n) + i;
+      o.motes[m].position.set(
+        Math.cos(a) * rr,
+        (o.def.moteY || 0) + Math.sin(t * 2.1 + m * 1.9) * 0.10,
+        Math.sin(a) * rr * 0.82
+      );
+      o.motes[m].rotation.set(a * 2.1, a * 1.6, a);
+      o.motes[m].scale.setScalar(0.85 + 0.3 * Math.sin(t * 5 + m * 2.2));
+    }
+
+    /* своя анимация предмета */
+    if (o.anim) { try { o.anim(o, dt, t); } catch (e) { o.anim = null; } }
+  }
+}
+
 /* ---------- корона Мясника ---------- */
 var crown = null;
 function buildCrown() {
@@ -2672,6 +3499,8 @@ var $ = function (id) { return document.getElementById(id); };
 var elGold = $('goldVal'), elBonus = $('chanceBonus'), elChance = $('chanceVal'), elSpeed = $('speedVal');
 var elShield = $('shieldVal'), elChainText = $('chainText'), elChainBar = $('chainBar');
 var elArtCount = $('artCount'), elArtGrid = $('artGrid'), elShopList = $('shopList');
+var elIncome = $('incomeVal'), elIncomeBox = $('incomeBox');
+var elArtIncome = $('artIncome'), elArtLevels = $('artLevels');
 var elToasts = $('toasts'), elReveal = $('reveal'), elFloaters = $('floaters'), elFlash = $('flash');
 var elConfetti = $('confetti'), btnThrow = $('btnThrow'), elLoader = $('loader');
 
@@ -2755,6 +3584,24 @@ function sndFail()    { tone(95, 0.20, 'sine', 0.16, 55); noise(0.12, 0.07, 300,
 function sndBreak()   { tone(320, 0.55, 'sawtooth', 0.20, 48); tone(90, 0.35, 'sine', 0.22, 45, 0.05); noise(0.3, 0.12, 500, 80, 0, 'lowpass'); }
 function sndShield()  { tone(1568, 0.28, 'triangle', 0.14, 2093); tone(2093, 0.3, 'sine', 0.08, 1568, 0.04); }
 function sndBuy()     { tone(620, 0.08, 'square', 0.09, 930); tone(930, 0.1, 'sine', 0.1, undefined, 0.06); }
+// улучшение предмета: чем выше уровень, тем выше и «дороже» арпеджио
+function sndArtUpgrade(lv) {
+  var base = 520 + Math.min(7, (lv || 1)) * 55;
+  tone(base, 0.09, 'square', 0.08, base * 1.5);
+  tone(base * 1.5, 0.12, 'triangle', 0.10, undefined, 0.07);
+  tone(base * 2, 0.22, 'sine', 0.09, undefined, 0.15);
+  noise(0.16, 0.05, 2400, 5200, 0.02);       // звон «полировки»
+  if (lv >= PUDGE_LOGIC.MAX_ART_LV) {          // максимум — маленький фанфар
+    tone(base * 3, 0.3, 'triangle', 0.09, undefined, 0.26);
+    tone(base * 4, 0.42, 'sine', 0.07, undefined, 0.34);
+  }
+}
+// тихий «дзынь» капающего золота (раз в 2 секунды, не мешает)
+function sndDrip()    { tone(1560 + Math.random() * 260, 0.05, 'sine', 0.028); }
+// экипировка появилась на Пудже
+function sndEquip()   { tone(320, 0.10, 'triangle', 0.10, 620); noise(0.14, 0.06, 700, 2600, 0.03); }
+// экипировка осыпалась (обрыв цепочки)
+function sndUnequip() { tone(420, 0.22, 'sine', 0.07, 120); noise(0.22, 0.05, 1600, 260, 0, 'lowpass'); }
 function sndCrown() {
   tone(1318, 0.18, 'triangle', 0.12);
   tone(1760, 0.22, 'triangle', 0.10, undefined, 0.09);
@@ -2842,32 +3689,105 @@ function renderHud() {
   $('chainWrap').classList.toggle('deep', n >= 6 && n < 9);
   $('chainWrap').classList.toggle('abyss', n >= 9);
   elArtCount.textContent = n + '/12';
+  renderIncome();
 }
 
-var artSlots = {};
+/* ---------- доход от прокачанных артефактов ---------- */
+function fmtRate(r) {
+  if (!(r > 0)) return '0';
+  if (r < 10) return (Math.round(r * 10) / 10).toFixed(1);
+  if (r < 10000) return String(Math.round(r));
+  return L.fmt(r);
+}
+function setTxt(el, v) { if (el && el.textContent !== v) el.textContent = v; }
+function renderIncome() {
+  var rate = L.artIncomePerSec(S);
+  var txt = '+' + fmtRate(rate) + '/с';
+  setTxt(elIncome, txt);
+  if (elIncomeBox) elIncomeBox.classList.toggle('zero', rate <= 0);
+  if (elIncomeBox) elIncomeBox.title = rate > 0
+    ? 'Пассивный доход: ' + txt + ' — столько золота приносят предметы текущей цепочки. Прокачивай артефакты в панели 🎒'
+    : 'Пассивный доход: пока нулевой. Прокачай артефакты в панели 🎒 — и они будут платить золото, пока лежат в цепочке';
+  setTxt(elArtIncome, '💎 ' + txt);
+  setTxt(elArtLevels, 'уровней: ' + L.artTotalLevels(S) + ' / ' + (L.MAX_ART_LV * L.TOTAL_ARTS));
+}
+
+var artSlots = {};   // id -> элемент карточки (нужен для flyToSlot / markLostSlots)
+var artUI = {};      // id -> {el, pips, inc, btn, ord, lv, btnHtml} — для лёгкой перерисовки
+var COIN_SVG = '<svg class="icx" aria-hidden="true"><use href="#i-coin" xlink:href="#i-coin"></use></svg>';
+
 function buildArtPanel() {
   elArtGrid.innerHTML = '';
+  artUI = {};
   L.ARTIFACTS.forEach(function (a) {
     var d = document.createElement('div');
     d.className = 'art-slot';
+    var pipsHtml = '';
+    for (var i = 0; i < L.MAX_ART_LV; i++) pipsHtml += '<i></i>';
     d.innerHTML =
       '<span class="ico">' +
         '<img src="' + a.imgUrl + '" alt="" loading="lazy">' +
         '<span class="emo">' + a.icon + '</span>' +
       '</span>' +
       '<span class="ord"></span><span class="firstdot"></span>' +
-      '<span class="nm">' + a.name + '</span>';
+      '<span class="nm">' + a.name + '</span>' +
+      '<span class="art-lv">' + pipsHtml + '</span>' +
+      '<span class="art-inc"></span>' +
+      '<button class="art-up" type="button" title="Улучшить предмет"></button>';
     d.title = a.name + ' — «' + a.flavor + '»';
     var img = d.querySelector('img');
     img.onerror = function () { img.style.display = 'none'; d.querySelector('.emo').style.display = 'block'; };
+    var ui = {
+      el: d,
+      pips: Array.prototype.slice.call(d.querySelectorAll('.art-lv i')),
+      inc: d.querySelector('.art-inc'),
+      btn: d.querySelector('.art-up'),
+      ord: d.querySelector('.ord'),
+      lv: -1, incHtml: null, btnHtml: null, can: null
+    };
+    ui.btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      tryUpgradeArt(a, e.currentTarget);
+    });
     elArtGrid.appendChild(d);
     artSlots[a.id] = d;
+    artUI[a.id] = ui;
   });
 }
+
+/* ---------- состояние кнопки и подписей карточки предмета ---------- */
+function syncArtCard(a, ui, owned, lv) {
+  if (!ui) return;
+  var maxed = lv >= L.MAX_ART_LV;
+  var cost = maxed ? 0 : L.artUpCost(lv);
+  var can = owned && !maxed && S.gold >= cost;
+
+  var incHtml = lv > 0
+    ? '<b>+' + fmtRate(L.artIncomeOf(S, a.id)) + '/с</b> · <b>+' + Math.round(L.ART_LV_FIND * lv * 100) + '%</b> за находку'
+    : (owned ? 'не прокачан' : 'не найден');
+  if (ui.incHtml !== incHtml) { ui.incHtml = incHtml; ui.inc.innerHTML = incHtml; }
+
+  var btnHtml = maxed ? '✨ максимум'
+    : (!owned ? '🔒'
+    : COIN_SVG + ' ' + L.fmt(cost));
+  if (ui.btnHtml !== btnHtml) { ui.btnHtml = btnHtml; ui.btn.innerHTML = btnHtml; }
+
+  if (ui.can !== can) {
+    ui.can = can;
+    ui.btn.disabled = !can;
+    ui.el.classList.toggle('can', can);
+  }
+  ui.btn.title = !owned ? '🔒 Сначала вытащи ' + a.name + ' из леса: улучшать можно только предмет из текущей цепочки'
+    : (maxed ? a.name + ' — максимальный уровень ' + L.MAX_ART_LV
+    : 'Улучшить «' + a.name + '» до ур. ' + (lv + 1) + ' за ' + L.fmt(cost) + ' золота\n+' +
+      (Math.round(L.ART_LV_INCOME * L.goldMultOf(S) * 10) / 10) + ' золота/с, пока предмет в цепочке\n+' +
+      Math.round(L.ART_LV_FIND * 100) + '% к золоту за его находку');
+}
+
 function renderArts() {
   L.ARTIFACTS.forEach(function (a) {
-    var d = artSlots[a.id];
-    var owned = S.chainIds.indexOf(a.id) !== -1;
+    var d = artSlots[a.id], ui = artUI[a.id];
+    var owned = L.artOwnedInChain(S, a.id);
     if (owned && !d.classList.contains('owned')) {
       d.classList.add('owned', 'pop');
       setTimeout(function () { d.classList.remove('pop'); }, 550);
@@ -2875,10 +3795,42 @@ function renderArts() {
       d.classList.remove('owned');
     }
     var order = S.chainIds.indexOf(a.id);
-    d.querySelector('.ord').textContent = owned ? (order + 1) : '';
+    ui.ord.textContent = owned ? (order + 1) : '';
     // золотая точка = бонус «первый раз за заход» ещё доступен
     d.classList.toggle('bonusfree', !S.sessionFirst[a.id]);
+    var lv = L.artLvOf(S, a.id);
+    if (ui.lv !== lv) {
+      ui.lv = lv;
+      for (var i = 0; i < ui.pips.length; i++) ui.pips[i].classList.toggle('on', i < lv);
+      d.classList.toggle('lvmax', lv >= L.MAX_ART_LV);
+    }
+    syncArtCard(a, ui, owned, lv);
   });
+  renderIncome();
+}
+
+/* ---------- покупка уровня предмета ---------- */
+function tryUpgradeArt(a, btn) {
+  if (L.buyArtUpgrade(S, a.id)) {
+    var lv = L.artLvOf(S, a.id);
+    sndArtUpgrade(lv);
+    if (typeof gearLevelUp === 'function') gearLevelUp(a.id, lv);   // вспышка прямо на вещи у Пуджа
+    var slot = artSlots[a.id];
+    slot.classList.remove('upped'); void slot.offsetWidth; slot.classList.add('upped');
+    setTimeout(function () { slot.classList.remove('upped'); }, 700);
+    toast(a.icon + ' <b>' + a.name + '</b> → ур. ' + lv + ' / ' + L.MAX_ART_LV +
+          '<br><span style="color:#a8c070">+' + fmtRate(L.artIncomeOf(S, a.id)) + '/с в цепочке · +' +
+          Math.round(L.ART_LV_FIND * lv * 100) + '% к находке</span>' +
+          (lv >= L.MAX_ART_LV ? ' <b style="color:#8fbf5a">МАКСИМУМ!</b>' : ''), 'good', 2600);
+    renderAll(); saveNow();
+  } else {
+    if (!L.artOwnedInChain(S, a.id)) {
+      toast('🔒 «' + a.name + '» не в цепочке — улучшать можно только то, что Пудж носит сейчас.', 'meh', 2600);
+    } else if (L.artMaxed(S, a.id)) {
+      toast('✨ «' + a.name + '» уже отполирован до блеска: уровень ' + L.MAX_ART_LV + '.', 'good', 2200);
+    }
+    denyBeep(btn);
+  }
 }
 
 function upgNowNext(key) {
@@ -2896,8 +3848,10 @@ function upgNowNext(key) {
   return 'золото: <b>×' + gm.toFixed(1) + '</b>' + (maxed ? ' · максимум' : ' → <b>×' + (gm + 0.4).toFixed(1) + '</b>');
 }
 
+var shopUI = {};
 function renderShop() {
   elShopList.innerHTML = '';
+  shopUI = {};
   ['luck', 'speed', 'gold'].forEach(function (key) {
     var u = L.UPGRADES[key], lv = S.up[key], maxed = lv >= u.max;
     var cost = maxed ? 0 : L.upgCost(key, lv);
@@ -2915,15 +3869,36 @@ function renderShop() {
         '<button class="buy" ' + (afford ? '' : 'disabled') + '>' +
           (maxed ? 'МАКСИМУМ' : '<svg class="icx" aria-hidden="true"><use href="#i-coin" xlink:href="#i-coin"></use></svg> ' + L.fmt(cost)) + '</button>' +
       '</div>';
+    var buyBtn = card.querySelector('.buy');
     if (!maxed) {
-      card.querySelector('.buy').addEventListener('click', function (e) {
+      buyBtn.addEventListener('click', function (e) {
         e.stopPropagation();
         if (L.buyUpgrade(S, key)) { sndBuy(); saveNow(); renderAll(); toast('🛠️ ' + u.name + ' → ур. ' + S.up[key], 'good'); }
         else denyBeep(e.currentTarget);
       });
     }
     elShopList.appendChild(card);
+    shopUI[key] = { el: card, btn: buyBtn, afford: null };
   });
+}
+/* дешёвая синхронизация «по карману ли» — зовётся из тика пассивного дохода,
+   чтобы кнопки оживали без полной перерисовки панелей */
+function syncShopCard(key) {
+  var ui = shopUI[key];
+  if (!ui || !ui.btn) return;
+  var u = L.UPGRADES[key], lv = S.up[key];
+  var afford = lv < u.max && S.gold >= L.upgCost(key, lv);
+  if (ui.afford === afford) return;
+  ui.afford = afford;
+  ui.el.classList.toggle('afford', afford);
+  ui.btn.disabled = !afford;
+}
+function syncBuyStates() {
+  for (var k in shopUI) syncShopCard(k);
+  L.ARTIFACTS.forEach(function (a) {
+    syncArtCard(a, artUI[a.id], L.artOwnedInChain(S, a.id), L.artLvOf(S, a.id));
+  });
+  renderIncome();
 }
 
 function denyBeep(btn) {
@@ -2959,6 +3934,11 @@ function showReveal(ev) {
     '<div class="rv-name" style="color:' + a.color + '; text-shadow:0 0 22px ' + a.color + ', 0 2px 10px #000">' + a.name + '</div>' +
     '<div class="rv-flavor">«' + a.flavor + '»</div>' +
     '<div class="rv-gold"><svg class="icx" aria-hidden="true"><use href="#i-coin" xlink:href="#i-coin"></use></svg> +' + L.fmt(ev.gold) + (ev.firstBonus ? '<span class="fb">+' + L.fmt(ev.firstBonus) + ' бонус</span>' : '') + '</div>' +
+    '<div class="rv-lvl">' + (ev.artLv
+      ? '<span class="lv">ур. ' + ev.artLv + '</span> · +' + Math.round(L.ART_LV_FIND * ev.artLv * 100) +
+        '% к золоту = <b>+' + L.fmt(ev.lvlBonus) + '</b> · <span style="color:#a8c070">+' +
+        fmtRate(L.artIncomeOf(S, a.id)) + '/с, пока в цепочке</span>'
+      : '<span style="color:#8f7c5c">ур. 0 — улучши его в 🎒: будет платить золото и находится дороже</span>') + '</div>' +
     '<div class="rv-chain">Цепочка: ' + ev.chain + ' / 12' + (ev.chain === 11 ? ' · ОСТАЛСЯ ОДИН!' : '') + '</div>';
   elReveal.classList.remove('show');
   void elReveal.offsetWidth;
@@ -2973,6 +3953,61 @@ function goldFloater(amount, isBonus) {
   d.className = 'floater' + (isBonus ? ' bonus' : '');
   d.innerHTML = '+' + L.fmt(amount) + ' <svg class="icx" aria-hidden="true"><use href="#i-coin" xlink:href="#i-coin"></use></svg>' + (isBonus ? ' бонус' : '');
   d.style.left = (r.left + r.width / 2 + (isBonus ? 46 : 0)) + 'px';
+  d.style.top = (r.bottom + 4) + 'px';
+  elFloaters.appendChild(d);
+  setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, 1100);
+}
+
+/* ---------- пассивный доход: золото капает с прокачанных предметов ---------- */
+var incomeAcc = 0;      // дробный аккумулятор золота
+var dripAcc = 0;        // сколько накапало с последней всплывашки
+var dripClock = 0;      // таймер всплывашки
+var syncClock = 0;      // таймер лёгкой синхронизации кнопок
+var lastSyncGold = -1;
+
+function tickPassive(dt) {
+  var rate = L.artIncomePerSec(S);
+  if (!(rate > 0)) { incomeAcc = 0; return; }
+  incomeAcc += rate * dt;
+  var whole = Math.floor(incomeAcc);
+  if (whole > 0) {
+    incomeAcc -= whole;
+    S.gold += whole;
+    S.stats.goldEarned += whole;
+    S.stats.passiveGold += whole;
+    dripAcc += whole;
+    _prevGold = S.gold;              // пассивный доход не должен «дёргать» чип золота
+    setTxt(elGold, L.fmt(S.gold));
+  }
+  // раз в 2 секунды показываем, сколько накапало
+  dripClock += dt;
+  if (dripClock >= 2) {
+    dripClock = 0;
+    if (dripAcc > 0) { dripFloater(dripAcc); dripAcc = 0; pulseIncome(); }
+  }
+  // кнопки покупок обновляем не чаще 4 раз в секунду и только если золото менялось
+  syncClock += dt;
+  if (syncClock >= 0.25) {
+    syncClock = 0;
+    if (S.gold !== lastSyncGold) { lastSyncGold = S.gold; syncBuyStates(); }
+  }
+}
+function pulseIncome() {
+  if (!elIncomeBox) return;
+  elIncomeBox.classList.remove('drip');
+  void elIncomeBox.offsetWidth;
+  elIncomeBox.classList.add('drip');
+  setTimeout(function () { elIncomeBox.classList.remove('drip'); }, 700);
+  if (typeof sndDrip === 'function') sndDrip();
+}
+function dripFloater(amount) {
+  if (!elIncomeBox || elIncomeBox.classList.contains('zero')) return;
+  var r = elIncomeBox.getBoundingClientRect();
+  if (r.bottom < 0 || r.top > window.innerHeight || r.width === 0) return;
+  var d = document.createElement('div');
+  d.className = 'floater drip';
+  d.innerHTML = '+' + L.fmt(amount);
+  d.style.left = (r.left + r.width / 2) + 'px';
   d.style.top = (r.bottom + 4) + 'px';
   elFloaters.appendChild(d);
   setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, 1100);
@@ -3048,6 +4083,7 @@ function onThrowEnded() {
 }
 function onArtifact(ev) {
   orbitAdd(ev.art, false, ev.chain - 1);
+  gearEquip(ev.art.id, false);        // предмет появляется НА Пудже (ботинки — на ноги и т.д.)
   window.__lastArtifact = { at: Date.now(), id: ev.art.id, isNew: ev.isNew, gold: ev.gold, firstBonus: ev.firstBonus };
   showReveal(ev);
   goldFloater(ev.gold);
@@ -3066,6 +4102,7 @@ function onShieldSave(ev) {
 }
 function onChainBreak(ev) {
   orbitShatter();
+  gearUnequipAll(true);               // всё снятое сгорает вместе с цепочкой
   var icons = (ev.lostIds || []).map(function (id) { return L.ART_BY_ID[id] ? L.ART_BY_ID[id].icon : ''; }).join(' ');
   toast('💥 <b>ЦЕПОЧКА ОБОРВАНА!</b><br>Лес забрал ' + ev.lost + ' предмет' + plural(ev.lost) + ': ' + icons, 'bad', 3600);
   flash('flash-break');
@@ -3180,6 +4217,8 @@ function renderStats() {
     ['Обрывов цепочки', L.fmt(st.breaks)],
     ['Оберегов сработало', L.fmt(st.shieldsUsed)],
     ['Золота заработано', L.fmt(st.goldEarned)],
+    ['— из него пассивно (предметы)', L.fmt(st.passiveGold || 0) + ' · +' + fmtRate(L.artIncomePerSec(S)) + '/с сейчас'],
+    ['Уровней предметов куплено', L.fmt(st.artUpgrades || 0) + ' · всего ' + L.artTotalLevels(S) + '/' + (L.MAX_ART_LV * L.TOTAL_ARTS)],
     ['Побед', st.wins],
     ['Время в игре', L.fmtTime(st.playMs)]
   ];
@@ -3220,6 +4259,7 @@ $('mConfirmYes').addEventListener('click', function () {
   L.clearSave();
   endCelebration();
   orbitClear();
+  gearUnequipAll(true);
   closeAllModals();
   renderAll();
   toast('💀 Всё пропало. Мясник начинает заново.', 'meh', 3000);
@@ -3228,6 +4268,7 @@ $('btnNG').addEventListener('click', function () {
   L.newGamePlus(S);
   endCelebration();
   orbitClear();
+  gearUnequipAll(true);
   closeAllModals();
   renderAll(); saveNow();
   toast('👑 Новая игра+: предметы сняты, крюк снова в деле.', 'good', 3200);
@@ -3237,6 +4278,7 @@ $('btnFullReset').addEventListener('click', function () {
   L.clearSave();
   endCelebration();
   orbitClear();
+  gearUnequipAll(true);
   closeAllModals();
   renderAll();
 });
@@ -3269,6 +4311,8 @@ buildArtPanel();
 buildChainPips();
 renderAll();
 S.chainIds.forEach(function (id, ix) { if (L.ART_BY_ID[id]) orbitAdd(L.ART_BY_ID[id], true, ix); });
+gearSync(true);                 // вещи из сохранённой цепочки — сразу на Пудже, без эффектов
+lastSyncGold = S.gold;
 // правила не всплывают сами — только по кнопке 📜 в HUD
 
 var clock = new THREE.Clock();
@@ -3288,9 +4332,11 @@ function animate() {
   updateBeam(dt);
   updateWinRing(dt);
   updateChainOrbit(dt);
+  updateGear(dt);          // вещи на Пудже: трепещут, бьются, сияют по уровню
   updateGroundPulse(dt);
   updateWinCine(dt);
   updateCam(dt);
+  tickPassive(dt);         // золото капает с прокачанных предметов в цепочке
   renderer.render(scene, camera);
 
   // победная модалка — только досняв кинематограф (или сразу, если он выключен)
@@ -3327,8 +4373,48 @@ window.__pudgeGame = {
   getPhase: function () { return HX.phase; },
   getDurations: function () { return HX.dur; },
   getCamPos: function () { return camera.position.toArray(); },
+  camera: camera,
+  /* отладка: зафиксировать камеру в точке (для крупных планов экипировки) */
+  setCam: function (pos, target, fov) {
+    camOverride = pos ? { pos: pos, target: target || [0, 3.15, 0], fov: fov || 42 } : null;
+  },
+  getCamOverride: function () { return camOverride; },
+  /* отладка: надеть один предмет и прокачать его */
+  testWear: function (id, lv) {
+    var st = this.getState();
+    st.chainIds = [id];
+    st.artLv[id] = Math.max(0, Math.min(L.MAX_ART_LV, lv | 0));
+    gearSync(true);
+    renderAll();
+    return this.getGear()[id] || null;
+  },
   getChainStart: function () { return [chainPos[0], chainPos[1], chainPos[2]]; },
   getOrbitCount: function () { return orbitItems.length; },
+  /* --- экипировка: что надето на Пуджа --- */
+  getGear: function () {
+    var out = {};
+    for (var id in GEAR) {
+      var o = GEAR[id], w = new THREE.Vector3();
+      o.g.getWorldPosition(w);
+      out[id] = { state: o.state, lvl: o.lvl, visible: o.g.visible,
+                  scale: +o.g.scale.x.toFixed(3), motes: o.lvl,
+                  world: [+w.x.toFixed(2), +w.y.toFixed(2), +w.z.toFixed(2)],
+                  meshes: (function () { var n = 0; o.g.traverse(function (c) { if (c.isMesh) n++; }); return n; })() };
+    }
+    return out;
+  },
+  getGearList: function () { return gearList.map(function (o) { return o.id + ':' + o.state; }); },
+  gearSync: function (silent) { gearSync(silent !== false); },
+  testEquipAll: function (lv) {
+    for (var i = 0; i < L.ARTIFACTS.length; i++) {
+      if (S.chainIds.indexOf(L.ARTIFACTS[i].id) === -1) S.chainIds.push(L.ARTIFACTS[i].id);
+      if (lv) S.artLv[L.ARTIFACTS[i].id] = Math.min(L.MAX_ART_LV, lv);
+    }
+    gearSync(false); renderAll();
+    return S.chainIds.length;
+  },
+  testUnequipAll: function () { gearUnequipAll(true); },
+  getPassiveRate: function () { return L.artIncomePerSec(S); },
   getWinCine: function () { return { on: winCine.on, t: +winCine.t.toFixed(2) }; },
   getCrown: function () {
     if (!crown) return null;
@@ -3343,6 +4429,7 @@ window.__pudgeGame = {
       var pool = L.ARTIFACTS.filter(function (a) { return S.chainIds.indexOf(a.id) === -1; });
       S.chainIds.push(pool[0].id);
     }
+    gearSync(true);
     renderAll();
   },
   testWin: function () {
